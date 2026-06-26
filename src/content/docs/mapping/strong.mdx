@@ -1,0 +1,86 @@
+---
+title: Mapping — Strong
+description: Map a Strong app CSV export into OpenBody Session / Exercise / WorkUnit records.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+**Source:** Strong app CSV export (one row per set; `,` or `;` delimited). **Pillar:** B
+(strength). **Mapper:**
+[`mapStrong`](https://github.com/openbody/openbody-ts/blob/main/src/mappers/strong.ts) —
+`mapStrong(csv) → records[]`, one `Session` per workout.
+
+## Structural correspondence
+
+| Strong CSV | OpenBody |
+|---|---|
+| a workout (rows sharing `Date` + `Workout Name`) | `Session` (`disciplines: ["strength"]`, `name` ← `Workout Name`) |
+| consecutive rows for one `Exercise Name` | `Exercise` (`exerciseRef: { opaque: <name> }`) |
+| one set row | `WorkUnit` (`scoring` from `Reps`/`Distance`/`Seconds`) |
+| `Weight` | `performance.load` (`unit: "kg"`, `basis: "marked_weight"`) |
+| `Reps` / `Distance` / `Seconds` | `performance.reps` / `.distance` (m) / `.time` (s) |
+| `Notes` | `WorkUnit.notes` |
+| `Workout No` | `Session.extension["io.strong.export"].workoutNo` |
+
+## Input (two exercises, one of them a plank)
+
+```csv
+Date,Workout Name,Duration,Exercise Name,Set Order,Weight,Reps,Distance,Seconds,Notes,Workout No
+2025-12-20 18:00:00,Push Day,3600,Bench Press (Barbell),1,80,5,0,0,,1
+2025-12-20 18:00:00,Push Day,3600,Plank,1,0,0,0,60,core hold,1
+```
+
+## Output (OpenBody wire record)
+
+```json
+{
+  "id": "strong-w1",
+  "recordType": "Session",
+  "subject": "subj-001",
+  "name": "Push Day",
+  "disciplines": ["strength"],
+  "startTime": "2025-12-20T18:00:00Z",
+  "endTime": "2025-12-20T19:00:00Z",
+  "extension": { "io.strong.export": { "workoutNo": "1" } },
+  "exercises": [
+    {
+      "id": "strong-w1-ex0",
+      "recordType": "Exercise",
+      "exerciseRef": { "opaque": "Bench Press (Barbell)" },
+      "workUnits": [
+        {
+          "id": "strong-w1-ex0-set0",
+          "recordType": "WorkUnit",
+          "scoring": "reps",
+          "performance": { "reps": 5, "load": { "value": 80, "unit": "kg", "basis": "marked_weight" } }
+        }
+      ]
+    },
+    {
+      "id": "strong-w1-ex1",
+      "recordType": "Exercise",
+      "exerciseRef": { "opaque": "Plank" },
+      "workUnits": [
+        {
+          "id": "strong-w1-ex1-set0",
+          "recordType": "WorkUnit",
+          "scoring": "time",
+          "performance": { "time": 60 },
+          "notes": "core hold"
+        }
+      ]
+    }
+  ]
+}
+```
+
+## Notes
+
+- **`Duration`** (seconds) sets `endTime = startTime + Duration`. The `Date` is parsed as
+  UTC.
+- **App-specific residue** (`Workout No`) has no canonical home, so it goes to a **namespaced
+  extension** (`io.strong.export`) rather than being dropped — the canonical-plus-residue
+  principle (§10.1).
+- **Mixed scoring per exercise** works: a `Plank` row (`Seconds: 60`) becomes a
+  `time`-scored `WorkUnit`; a distance row becomes `distance`-scored.
+- Exercise identity uses the `opaque` floor, like [Hevy](/mapping/hevy/).

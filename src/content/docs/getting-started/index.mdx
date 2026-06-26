@@ -1,0 +1,99 @@
+---
+title: Getting started
+description: Install openbody-ts, validate a record against the JSON Schema, and canonically normalize it (§8.3).
+---
+
+import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+This walks through the **TypeScript reference implementation**, `openbody-ts`: validate an
+OpenBody record against the published JSON Schema, then run it through the §8.3
+canonical-normalization pipeline. A reference implementation is *one* implementation, not
+normative — [`SPEC.md`](/specification/spec/) is the source of truth.
+
+<Aside type="note" title="Pre-release tooling">
+`openbody-ts` is early (v0.1.0) and tracks spec **v0.3.x**. It is **not yet published to
+npm** — install from a local checkout of the repository. Package names and install steps
+will firm up at the public draft release.
+</Aside>
+
+## Install
+
+<Steps>
+
+1. Clone the standard and the reference implementation as sibling checkouts. The vector
+   runner and validator read the standard (schema + vectors) from `../openbody` by default
+   (override with `OPENBODY_STANDARD`).
+
+   ```bash
+   git clone https://github.com/openbody/openbody.git
+   git clone https://github.com/openbody/openbody-ts.git
+   cd openbody-ts
+   npm install
+   ```
+
+2. Confirm the toolchain is green:
+
+   ```bash
+   npm test   # typecheck + lossless number checks + vectors + mapper round-trips
+   ```
+
+</Steps>
+
+## Validate a record
+
+`validate(record)` checks a record against the OpenBody JSON Schema (Draft 2020-12,
+SPEC §§4–7). Validate **wire** records — not the §8.3 canonical form, which is a
+*comparison* artifact, not the binding.
+
+```ts
+import { validate } from "openbody-ts";
+
+// A minimal reps-scored WorkUnit — the one required-tier element of Training core (§3.3).
+const workUnit = {
+  id: "wu-squat-1",
+  recordType: "WorkUnit",
+  subject: "subj-001",
+  exerciseRef: "squat.barbell.high-bar",
+  scoring: "reps",
+  prescription: { reps: 5, load: { value: 100, unit: "kg", basis: "marked_weight" } },
+};
+
+const result = validate(workUnit);
+console.log(result); // → valid / list of schema errors
+```
+
+<Aside type="caution" title="Schema validates structure, not every rule">
+The JSON Schema validates **structure**. Several context-dependent rules are enforced by a
+conforming implementation, not the schema — e.g. a `Session` carries at most one of
+`blocks|exercises|workUnits` (§5.3); `scoring`↔metric agreement (§5.5); `Load.unit`
+conditionality (§5.12); `algorithm` required when `method` is `algorithm` (§7.4). See the
+[JSON Schema page](/specification/schema/) and the schema's own `NOTE`.
+</Aside>
+
+## Normalize & compare
+
+`normalizeDocument(doc)` runs the [§8.3 canonical-normalization pipeline](/concepts/canonicalization/)
+— number → lowest-terms fixed-point, unit canonicalization, scalar→`Target` expansion,
+`ExerciseRef` fold, `sets` expansion, deterministic id assignment, flatten + `partOf`,
+`status` default, then RFC 8785 serialization — producing a sorted set of canonical record
+byte strings. `equivalent(a, b)` is true iff two documents normalize to the same set.
+
+```ts
+import { equivalent } from "openbody-ts";
+
+// The nested document and the flat + partOf encoding of one structure are equivalent (§7.2).
+console.log(equivalent(nestedDoc, flatDoc)); // → true
+```
+
+<Aside type="tip" title="Lossless numbers">
+For full §8.3 fidelity, feed documents through `parseLossless` (or raw JSON text) rather
+than `JSON.parse`: numbers are parsed losslessly from their decimal text, never via
+`float64`, so high-precision decimals and integers above 2⁵³ canonicalize to their exact
+value. `npm run lossless` proves it.
+</Aside>
+
+## Next
+
+- [Run the conformance vectors](/getting-started/vectors/) against the reference implementation.
+- [Concepts](/concepts/data-model/) — the data model, the two pillars, exercise identity, canonicalization.
+- [Mapping guides](/mapping/) — turn a real Hevy / Strong / Strava / Apple Health export into OpenBody records.

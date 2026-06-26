@@ -1,0 +1,88 @@
+---
+title: Mapping — Hevy
+description: Map a Hevy CSV strength export into OpenBody Session / Block / Exercise / WorkUnit records.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+**Source:** Hevy CSV export (one row per set). **Pillar:** B (strength). **Mapper:**
+[`mapHevy`](https://github.com/openbody/openbody-ts/blob/main/src/mappers/hevy.ts) —
+`mapHevy(csv) → records[]`, one `Session` per workout.
+
+## Structural correspondence
+
+| Hevy CSV | OpenBody |
+|---|---|
+| a workout (rows sharing `title` + `start_time`) | `Session` (`disciplines: ["strength"]`, `name` ← `title`, `notes` ← `description`) |
+| consecutive rows for one `exercise_title` | `Exercise` (`exerciseRef: { opaque: <title> }`) |
+| one set row | `WorkUnit` (`scoring` from which columns are present) |
+| `set_type` (`normal｜warmup｜drop｜failure`) | `WorkUnit.setRole` (`working｜warmup｜drop｜failure`) |
+| `weight_kg` | `performance.load` (`unit: "kg"`) |
+| `reps` / `distance_km` / `duration_seconds` | `performance.reps` / `.distance` / `.time` |
+| `rpe` | `performance.effortLoad` (`{ kind: "internal", method: "RPE", value }`) |
+| `superset_id` (non-empty) | a `Block` with `grouping: "superset"` |
+
+## Input (one set)
+
+```csv
+"title","start_time","end_time",...,"exercise_title","superset_id",...,"set_type","weight_kg","reps",...,"rpe"
+"Morning workout","22 Dec 2025, 08:00","22 Dec 2025, 08:37",...,"Pull Up (Assisted)",,...,"normal",21,10,,0,8.5
+```
+
+## Output (OpenBody wire record)
+
+```json
+{
+  "id": "hevy-sess-1",
+  "recordType": "Session",
+  "subject": "subj-001",
+  "name": "Morning workout",
+  "disciplines": ["strength"],
+  "startTime": "2025-12-22T08:00:00Z",
+  "endTime": "2025-12-22T08:37:00Z",
+  "exercises": [
+    {
+      "id": "hevy-sess-1-ex0",
+      "recordType": "Exercise",
+      "exerciseRef": { "opaque": "Pull Up (Assisted)" },
+      "workUnits": [
+        {
+          "id": "hevy-sess-1-ex0-set0",
+          "recordType": "WorkUnit",
+          "scoring": "reps",
+          "setRole": "working",
+          "performance": {
+            "reps": 10,
+            "load": { "value": 21, "unit": "kg", "basis": "assist" },
+            "effortLoad": [{ "kind": "internal", "method": "RPE", "value": 8.5 }]
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+<Aside type="tip" title="Assisted machines → Load.basis: assist">
+"Pull Up (Assisted)" is detected by name and emits `basis: "assist"` rather than pretending
+the weight is added resistance — the machine's assist load round-trips honestly (§5.12).
+Plain machine/weighted lifts use `basis: "marked_weight"`.
+</Aside>
+
+## Notes & edge cases
+
+- **Workout title** maps to the first-class `name` (added in v0.3); the first Hevy mapper
+  silently dropped it — a real losslessness bug that dogfooding surfaced.
+- **Supersets force all-blocks.** A `Session` carries **at most one** of
+  `blocks｜exercises｜workUnits` (§5.3). If *any* row has a `superset_id`, the mapper emits
+  everything under `blocks[]`, wrapping standalone exercises in singleton `Block`s and
+  grouping superset mates in a `Block` with `grouping: "superset"`.
+- **Scoring** is chosen per set: `reps` if present, else `distance`, else `time` — so plank
+  and cardio rows map cleanly alongside strength sets.
+- **Exercise identity** uses the `opaque` floor — lossless now, registry-resolvable later
+  via the [matching ladder](/concepts/exercise-identity/#the-matching-ladder).
+
+<Aside type="note">
+Timestamps are normalized to RFC 3339; the Hevy export carries no UTC offset, so the mapper
+assumes UTC. A `Z` here is the mapper's assumption, not source-provided offset information.
+</Aside>

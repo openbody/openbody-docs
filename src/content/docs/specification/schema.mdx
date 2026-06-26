@@ -1,0 +1,55 @@
+---
+title: JSON Schema
+description: The OpenBody JSON Schema — the primary binding for SPEC §§4–7 (Draft 2020-12), plus what it does and does not enforce.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import meta from '../../../generated/spec-meta.json';
+
+The JSON Schema is the **primary binding** for SPEC §§4–7 (JSON Schema **Draft 2020-12**).
+Every `SPEC.md` example and every conformance vector validates against it. It is synced from
+the canonical repository at build time.
+
+- **Download:** [`openbody.schema.json`](/schema/openbody.schema.json)
+- **`$id`:** `https://openbody.dev/schema/v0.3/openbody.schema.json`
+- **Source of truth:** [`schema/openbody.schema.json`]({meta.sourceRepo}/blob/main/schema/openbody.schema.json)
+
+## What it validates
+
+The root `$ref` is a `oneOf` over the addressable record kinds, discriminated by
+`recordType`:
+
+> `tombstone`, `Measurement`, `Program`, `Session`, `Block`, `Exercise`, `WorkUnit`,
+> `ThresholdProfile`, `StatusPeriod`
+
+plus the shared `$defs` for value objects — `Target`, `scalarOrTarget`, `Load`,
+`EffortLoad`, `Progression`, `phasePattern`, `Descriptors`, `modifiers`, `outcome`,
+`ExerciseRef`, `provenance`, `envelope`, `prescription`, `performance`, `Rep`, and the
+numeric primitives (`fixedPoint`, `number`).
+
+Open registry-backed tokens (§5.9) are typed `string`; genuinely closed enums are
+constrained to their value set.
+
+<Aside type="caution" title="The schema validates STRUCTURE — not every rule">
+Several rules are context-dependent or normalization-level and are enforced by a
+**conforming implementation**, not the schema. From the schema's own `NOTE`:
+
+- top-level records **MUST** carry `id` + `subject`, while inlined children may inherit them (§7.1/§7.2);
+- a tombstone (`status: deleted`) is exempt from all required fields except `id`/`recordType`/`status` (§7.1);
+- a `Measurement` **MUST** carry `type`, `startTime`, `endTime`, with `unit` conditionally required by value kind (§4.1);
+- a `Session` carries **at most one** of `blocks｜exercises｜workUnits` (§5.3);
+- a `WorkUnit`'s `exerciseRef` is mutually exclusive with an enclosing `Exercise` (§5.5);
+- `scoring`↔metric agreement (§5.5); `sets` only in a planned `prescription` (§5.5);
+- `algorithm` required when `method` is `algorithm` (recommended, not required, when only `derivedFrom` is present) (§7.4);
+- and the §8.3 canonicalization/equivalence procedure.
+
+Validate **wire** records, not the §8.3 canonical form (that is a comparison artifact, not
+the binding).
+</Aside>
+
+## Using it
+
+In the reference implementation, `validate(record)` runs this schema via ajv. See
+[Getting started](/getting-started/#validate-a-record). The implementation notes that a
+`validateSemantics()` pass for the context-dependent rules above is planned but not yet
+complete — those remain the implementer's responsibility today.

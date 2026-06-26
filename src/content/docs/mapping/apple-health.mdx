@@ -1,0 +1,107 @@
+---
+title: Mapping — Apple Health / Health Connect
+description: Map an Apple Health export.xml into OpenBody Measurements and Sessions. Android Health Connect maps identically.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+**Source:** Apple Health `export.xml`. **Pillars:** A + B. **Mapper:**
+[`mapAppleHealth`](https://github.com/openbody/openbody-ts/blob/main/src/mappers/apple-health.ts)
+— `mapAppleHealth(xml) → records[]`. Pillar A is **mature** here: discrete and interval
+quantity samples, sleep-stage category series, and `HKWorkout` → Session all map with no
+model gaps.
+
+## Structural correspondence
+
+| Apple Health (`export.xml`) | OpenBody |
+|---|---|
+| `HKQuantityTypeIdentifierHeartRate` / `StepCount` / `BodyMass` | `Measurement` (`quantity`), type → canonical `heart_rate` / `step_count` / `body_mass` |
+| any other `HKQuantityTypeIdentifier…` | `Measurement` (`quantity`), type → `apple:HK…` (lazy token) |
+| a daily interval aggregate (`startDate ≠ endDate`) | `quantity` `Measurement` whose window is `startTime`/`endTime` (§4.3) |
+| `HKCategoryTypeIdentifierSleepAnalysis` | multiple `category` `Measurement`s (`sleep_stage`) over adjacent intervals (§4.3 — **not** a `sampleArray`) |
+| `HKWorkout` | `Session` + a `continuous` `WorkUnit` (distance + energy + time), `disciplines` from `workoutActivityType` |
+| `sourceName` | `provenance.device.model`; `method: "sensor"`, `sourceApp: "apple"` |
+
+## Output examples
+
+A discrete heart-rate sample → a `quantity` `Measurement` (`count/min` → UCUM `/min`):
+
+```json
+{
+  "id": "apple-q-1",
+  "recordType": "Measurement",
+  "subject": "subj-001",
+  "type": "heart_rate",
+  "quantity": 64,
+  "unit": "/min",
+  "startTime": "2026-06-20T07:00:00Z",
+  "endTime": "2026-06-20T07:00:00Z",
+  "provenance": { "method": "sensor", "sourceApp": "apple", "device": { "manufacturer": "apple", "model": "Apple Watch" } }
+}
+```
+
+A sleep stage → a `category` `Measurement` over its interval:
+
+```json
+{
+  "id": "apple-sleep-7",
+  "recordType": "Measurement",
+  "subject": "subj-001",
+  "type": "sleep_stage",
+  "category": "asleep_deep",
+  "startTime": "2026-06-20T02:10:00Z",
+  "endTime": "2026-06-20T02:48:00Z",
+  "provenance": { "method": "sensor", "sourceApp": "apple", "device": { "manufacturer": "apple", "model": "Apple Watch" } }
+}
+```
+
+An `HKWorkout` → a `Session` with a `continuous` `WorkUnit`:
+
+```json
+{
+  "id": "apple-workout-12",
+  "recordType": "Session",
+  "subject": "subj-001",
+  "disciplines": ["running"],
+  "intent": "train",
+  "startTime": "2026-06-20T06:30:00Z",
+  "endTime": "2026-06-20T07:12:00Z",
+  "provenance": { "method": "sensor", "sourceApp": "apple", "device": { "manufacturer": "apple", "model": "Apple Watch" } },
+  "workUnits": [
+    {
+      "id": "apple-workout-12-wu",
+      "recordType": "WorkUnit",
+      "scoring": "continuous",
+      "performance": {
+        "distance": { "absolute": { "value": 10.0, "unit": "km" } },
+        "energy": { "absolute": { "value": 520, "unit": "kcal" } },
+        "time": { "absolute": { "value": 2520, "unit": "s" } }
+      },
+      "links": [{ "type": "measuredBy", "ref": "apple-q-1" }]
+    }
+  ]
+}
+```
+
+<Aside type="note" title="Lazy type tokens (§4.4)">
+Known HealthKit identifiers resolve to canonical tokens (`heart_rate`, `step_count`,
+`body_mass`); anything unmapped is preserved source-namespaced as `apple:HK…`. Ingestion
+never fails for lack of a clinical code — vendor metrics survive, and external-code mapping
+is deferred to output.
+</Aside>
+
+## Health Connect parity — not a separate mapper
+
+Android **Health Connect** maps the same way and needs **no new model features**, so it is
+covered by this mapper:
+
+| Health Connect | OpenBody |
+|---|---|
+| `StepsRecord` | interval `quantity` `Measurement` |
+| `HeartRateRecord.samples` | `sampleArray` (or discrete `quantity`) |
+| `SleepSessionRecord` stages | `category` `Measurement`s (like Apple) |
+| `ExerciseSessionRecord` (+ laps/segments/route) | `Session` → Blocks/Exercise; route → `location` `sampleArray` |
+| record `title` | the v0.3 `name` |
+
+This shared mapping is itself evidence for the model's neutrality: two of the largest
+consumer health platforms reduce to the same canonical shapes.

@@ -1,0 +1,55 @@
+---
+title: Specification
+description: The normative OpenBody standard — what is normative, the JSON binding, and the rendered SPEC.md and JSON Schema.
+---
+
+import { Aside, LinkCard, CardGrid } from '@astrojs/starlight/components';
+import meta from '../../../generated/spec-meta.json';
+
+The canonical OpenBody standard is **`SPEC.md`** — a single normative document. This site
+renders it verbatim (synced from the canonical repository at build time); it never holds a
+hand-edited fork.
+
+<p>
+  <span class="ob-status">DRAFT · v{meta.specVersion} · pre-v1.0</span>
+</p>
+
+<Aside type="caution" title="Draft — breaking changes possible">
+OpenBody is a pre-v1.0 draft (spec **v{meta.specVersion}**). The normative text of a
+*released* version is immutable, but the standard as a whole is still stabilizing and
+**breaking changes are possible before v1.0**. A conformance claim names the spec version
+it targets.
+</Aside>
+
+## What is normative
+
+- **§§3–10 are the normative standard** — the model and the mapping *rules*.
+- **§§1–2 are introductory** — problem framing and the prior-art survey; their only
+  normative force is the forward-referenced design commitments.
+- **§11 (reference implementation) is non-normative** and deferred.
+
+The conformance keywords **MUST / MUST NOT / SHOULD / SHOULD NOT / MAY** carry RFC 2119 /
+RFC 8174 meaning only when capitalized. Parenthetical provenance tags like `(R1)`, `(D3)`,
+`(F7)` are **non-normative** design-history markers — ignore them when implementing.
+
+## Serialization
+
+The normative model is defined **independently of any serialization** (field names, types,
+cardinality, semantics). **JSON, with a published JSON Schema, is the primary, first-class
+binding** and the form used by every worked example and conformance vector. Protocol
+Buffers, FlatBuffers, and other encodings are valid **non-normative alternate bindings** for
+high-throughput implementations — they must preserve the normative field semantics and
+round-trip losslessly to JSON.
+
+## Read it
+
+<CardGrid>
+  <LinkCard title={`SPEC.md (v${meta.specVersion})`} href="/specification/spec/" description="The full normative standard, rendered from the canonical source." />
+  <LinkCard title="JSON Schema" href="/specification/schema/" description="The primary binding for §§4–7 (Draft 2020-12), with a download link." />
+  <LinkCard title="Changelog" href="/specification/changelog/" description="Version history under semantic versioning." />
+</CardGrid>
+
+<Aside type="note">
+Source of truth: the [canonical OpenBody repository]({meta.sourceRepo}). If anything on this
+site disagrees with `SPEC.md`, `SPEC.md` wins.
+</Aside>

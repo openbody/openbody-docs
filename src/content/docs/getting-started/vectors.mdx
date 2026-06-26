@@ -1,0 +1,66 @@
+---
+title: Run the conformance vectors
+description: Demonstrate conformance by round-tripping the published OpenBody test vectors with openbody-ts.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+Conformance is **testable**: an implementation demonstrates it by **round-tripping** the
+published test vectors for the profile and tier it claims, comparing against the normalized
+canonical form (SPEC §8.3). The reference implementation ships a vector runner.
+
+<Steps>
+
+1. From your `openbody-ts` checkout (with `openbody/` as a sibling):
+
+   ```bash
+   npm run vectors    # run the standard's conformance vectors against this impl
+   ```
+
+   The runner reads the vectors from `../openbody/conformance/vectors/` by default; override
+   the standard location with `OPENBODY_STANDARD=/path/to/openbody`.
+
+2. Run the incumbent mapper round-trips — every mapped wire record validates and
+   normalization is idempotent:
+
+   ```bash
+   npm run mappers    # Hevy / Strong / Strava / Apple Health → OpenBody, round-tripped
+   ```
+
+3. Prove the lossless-number guarantee (§8.3 step 1):
+
+   ```bash
+   npm run lossless
+   ```
+
+</Steps>
+
+## What the vectors cover
+
+The **minimum core vectors** (the conformance bar, SPEC §8.3) cover:
+
+- each of the five `WorkUnit.scoring` kinds (`reps｜time｜distance｜continuous｜energy`);
+- a resistance set, an interval/round scheme (AMRAP / EMOM / for-time / Tabata), and a
+  continuous-endurance record;
+- both the **scalar and `Target`** forms of a metric value;
+- both the **nested and flat + `partOf`** encodings of one containment structure, asserted equivalent;
+- an unresolved `ExerciseRef` (`opaque` only), an unknown extension, and an unknown
+  open-vocabulary token — each asserted to round-trip losslessly;
+- a supersession lineage (correction) and a tombstone;
+- a `sampleArray` in regular (`frequencyHz`) and irregular (`offsets`), scalar and
+  multi-channel, including a `null` dropped sample;
+- a **normalization-determinism** vector: a multi-`WorkUnit` `Exercise` with a `sets: N`
+  shorthand **and** an id-less inlined child, with its exact post-§8.3 ids and `partOf`
+  links asserted, plus a number-canonicalization case.
+
+The vector files live in [`conformance/vectors/`](https://github.com/openbody/openbody/tree/main/conformance/vectors)
+with an `index.json` manifest; the [Conformance section](/conformance/) explains profiles
+and how to claim "OpenBody Compatible". The **extended activity-coverage corpus**
+(`CORPUS.md`) is coverage validation, *not* a conformance bar.
+
+<Aside type="note">
+The conformance directory documents the intended structure and ships the minimum-core
+vectors; the broad activity-coverage **corpus** is filled out as the reference
+implementation runs the round-trip assertions against it. See the
+[reference conformance README](/conformance/conformance-readme/).
+</Aside>

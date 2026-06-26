@@ -1,0 +1,22 @@
+# build output
+dist/
+.astro/
+
+# dependencies
+node_modules/
+
+# generated spec content (synced from ../openbody at build time — never hand-edited)
+src/content/docs/specification/spec.md
+src/content/docs/specification/changelog.md
+src/content/docs/conformance/conformance-readme.md
+src/generated/
+
+# environment
+.env
+.env.production
+
+# macOS
+.DS_Store
+
+# logs
+npm-debug.log*

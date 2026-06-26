@@ -1,0 +1,98 @@
+---
+title: OpenBody™
+description: An open, vendor-neutral, language-agnostic standard for health & fitness data interoperability. Draft v0.3.1, pre-v1.0.
+template: splash
+hero:
+  tagline: An open standard so individuals own and port their health & fitness data — without platform lock-in. A canonical data model plus mapping semantics, implementable in any language.
+  image:
+    file: ../../assets/openbody-mark.svg
+  actions:
+    - text: Read the specification
+      link: /specification/
+      icon: right-arrow
+      variant: primary
+    - text: Getting started
+      link: /getting-started/
+      icon: open-book
+      variant: minimal
+    - text: View on GitHub
+      link: https://github.com/openbody/openbody
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, Aside, LinkCard } from '@astrojs/starlight/components';
+
+<p>
+  <span class="ob-status">DRAFT · v0.3.1 · pre-v1.0</span>
+</p>
+
+<Aside type="caution" title="Draft standard — in private review">
+OpenBody is a **pre-v1.0 draft (spec v0.3.1)**, currently in private review and being
+dogfooded before a public draft release. **Breaking changes are still possible before
+v1.0.** Nothing here should be read as a claim of broad adoption or a stable, frozen
+standard. Status and history live in the [changelog](/specification/changelog/).
+</Aside>
+
+## What OpenBody is
+
+OpenBody is an **open, vendor-neutral, language-agnostic standard**: a canonical data
+model plus mapping semantics that anyone can implement in any language. Its mission is
+that **individuals own and port their health and fitness data without platform lock-in**;
+its adoption lever is the **apps and platforms that implement it** to exchange that data
+losslessly.
+
+It is **fully open, not open-core** — the entire model and its mapping rules are public.
+The model is defined independently of any serialization; **JSON (with a published JSON
+Schema) is the primary, first-class binding**. OpenBody is stewarded by **Thabit Labs**,
+with intent to transfer to a neutral foundation as adoption warrants.
+
+## The two pillars
+
+<CardGrid>
+  <Card title="Pillar A — Observation (telemetry)" icon="seti:graphql">
+    Continuous or instantaneous **measurements**: heart rate, HRV, sleep, vitals, power,
+    speed, cadence, GPS. Readiness and recovery are observations, not training attributes.
+    Defined by the canonical `Measurement` (SPEC §4).
+  </Card>
+  <Card title="Pillar B — Structured Training (exercise)" icon="seti:pipeline">
+    The **prescription and execution** of training — programs, sessions, blocks,
+    exercises, work units, reps, with targets, effort, equipment, and the
+    planned-versus-performed relationship. This is what no incumbent provides cleanly
+    (SPEC §5–§6).
+  </Card>
+</CardGrid>
+
+Both pillars are **first-class**. A structured-training record never re-invents telemetry:
+Pillar B **references** Pillar A `Measurement`s through typed links (§1.3, §7). Every
+record — in either pillar — shares a common **record envelope** (§7): a stable identifier,
+typed links, provenance, and an immutable-plus-supersession lifecycle.
+
+## Why it exists
+
+Personal health and fitness data is trapped in silos. Every platform — Apple HealthKit,
+Google Health Connect, Garmin, Fitbit, Oura, Whoop, and a long tail of strength, endurance,
+and functional-fitness apps — defines its own schema, units, identifiers, and aggregation
+rules. There is no neutral, portable representation all of them can read and write.
+**Telemetry is partially standardized; structured training is barely served at all.**
+OpenBody is an open standard for both.
+
+## Start here
+
+<CardGrid>
+  <LinkCard title="Getting started" href="/getting-started/" description="Install openbody-ts, validate and normalize a record, run the vectors." />
+  <LinkCard title="Concepts" href="/concepts/data-model/" description="The data model, the two pillars, exercise identity, and §8.3 canonicalization — explained plainly." />
+  <LinkCard title="Specification" href="/specification/" description="The rendered, canonical SPEC.md (v0.3.1) plus the JSON Schema." />
+  <LinkCard title="Mapping guides" href="/mapping/" description="Real incumbent → OpenBody mappings: Hevy, Strong, Strava, Apple Health." />
+  <LinkCard title="Conformance" href="/conformance/" description="Profiles, the test vectors, and how to claim “OpenBody Compatible”." />
+  <LinkCard title="Registry" href="/registry/" description="The hand-curated canonical exercise registry, facets, and crosswalks." />
+</CardGrid>
+
+---
+
+<p style="font-size: var(--sl-text-sm); opacity: 0.8;">
+“OpenBody” is a vendor-neutral standard stewarded by Thabit Labs. The steward is not the
+brand on the wire. Specification: <strong>OWFa 1.0</strong> · Reference code:
+<strong>Apache-2.0</strong> · Registry data: <strong>CC0</strong>. See
+<a href="/licensing/">Licensing</a>.
+</p>

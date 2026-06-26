@@ -1,0 +1,77 @@
+---
+title: Exercise identity (§6)
+description: How OpenBody names movements — the hybrid registry + facets + coded crosswalk + opaque fallback model, and the matching ladder.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Exercise identity is the **unsolved interop problem**: every platform names movements
+differently, variations explode combinatorially, and novel exercises appear constantly.
+OpenBody resolves this with a **hybrid** model (§6) — a stable base-movement registry,
+structured facets for variations, a coded crosswalk to incumbents, a namespaced extension
+for novel movements, and a **lossless opaque fallback** that always round-trips.
+
+## `ExerciseRef`
+
+An `Exercise` references a movement via an **`ExerciseRef`**. The shorthand is a bare string
+— a canonical registry id like `"squat.barbell.high-bar"`; the full form is an object:
+
+| Field | Tier | Meaning |
+|---|---|---|
+| `id` | recommended | Canonical base-movement id from a registry (stable, namespaced). A bare string is shorthand for `{ id }`. |
+| `registry` | optional | Which registry + version the `id` is from. Default = the canonical OpenBody registry. |
+| `facets` | optional | Structured classification + variation. |
+| `coded` | optional | Crosswalk to incumbent codings. |
+| `opaque` | optional | The original source string when no `id` resolves — **MUST** round-trip losslessly. |
+| `extension` | optional | Namespaced fields for genuinely novel movements. |
+
+<Aside type="caution" title="The opaque floor">
+An `ExerciseRef` **MUST** carry at least one of `id` or `opaque`. A movement with no
+identity at all is invalid; `opaque` is the floor that guarantees nothing is lost. A
+producer **SHOULD** resolve to a canonical `id` where one exists; if it can't, it **MUST**
+carry `opaque`. In practice the [mappers](/mapping/) emit `exerciseRef: { opaque: "<app name>" }`
+— lossless now, registry-resolvable later.
+</Aside>
+
+## Facets — a stable base plus structured variation
+
+Facets decompose a movement into a stable base plus structured variation, avoiding a
+combinatorial registry. Every facet has **exactly one home** — facets live on the
+`ExerciseRef`; the occurrence's concrete physical realization (the specific machine + its
+settings, `resistanceProfile`) lives in `Descriptors` (§5.16) and must not duplicate them.
+
+- **Classification** (what kind of movement — *intrinsic*): `modality`, `movementPattern`,
+  `anatomy` (primary/secondary muscles), `mechanic` (compound/isolation). These are
+  **registry-derived from the `id`** and set explicitly only when there is no `id`.
+- **Variation** (which movement this is — *distinguishing*): `equipment` class, `grip`,
+  `laterality` (`bilateral｜unilateral_left｜unilateral_right｜alternating`),
+  `stance`/`barPosition`, `rangeOfMotion`.
+
+## The id format
+
+A canonical id is one or more lowercase dot-separated segments — `base[.variation…]`
+(`squat`, `squat.barbell`, `squat.barbell.high-bar`), each segment matching
+`[a-z0-9]+(?:-[a-z0-9]+)*`. Canonical ids are **unprefixed**; an augmenting registry uses
+its own namespace (`acme:squat.kettlebell`).
+
+<Aside type="note" title="Segments are a readability convention, not a parse target">
+Consumers **MUST NOT** infer semantics from segment structure — the registry, not the
+string, is authoritative.
+</Aside>
+
+## The matching ladder
+
+To resolve an incoming `ExerciseRef`, a consumer applies, in order:
+
+1. **Exact id** — match the canonical (or known-namespaced) `id`.
+2. **Facet match** — if no id, match/group by `facets`.
+3. **Coded crosswalk** — if no facets, resolve via a `coded` entry (incumbent codes like
+   `{ "wger": 615, "healthkit": "functionalStrengthTraining" }`).
+4. **Opaque** — otherwise treat as an opaque movement.
+
+A producer **SHOULD** climb as high as it can (prefer `id`); a consumer **MUST** preserve
+whatever it receives. Because every ref carries an `id` or `opaque` floor, an unresolved
+`ExerciseRef` always round-trips — "couldn't resolve" never means "drop."
+
+The canonical exercise registry is a **separate, independently-versioned, fetchable
+artifact** — see the [Registry section](/registry/).

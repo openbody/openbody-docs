@@ -1,0 +1,68 @@
+/* OpenBody docs — clean, minimal, technical. A standards/spec site, not a SaaS landing.
+   Neutral palette, restrained accent, comfortable measure for long normative text. */
+
+:root {
+  /* Restrained slate/teal accent — vendor-neutral, not a brand color. */
+  --sl-color-accent-low: #11283a;
+  --sl-color-accent: #2b7a9b;
+  --sl-color-accent-high: #b9dceb;
+
+  --sl-color-text-accent: var(--sl-color-accent-high);
+
+  /* Monospace for code; a clean sans for prose. System stacks (no web fonts to keep it fast). */
+  --sl-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --sl-font-mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+}
+
+:root[data-theme="light"] {
+  --sl-color-accent-low: #cfe6f0;
+  --sl-color-accent: #1f6884;
+  --sl-color-accent-high: #123544;
+  --sl-color-text-accent: var(--sl-color-accent);
+}
+
+/* Slightly tighter, more document-like content width for normative prose. */
+.sl-markdown-content {
+  --sl-content-width: 50rem;
+}
+
+/* Tables: the spec is table-heavy. Keep them legible and bounded. */
+.sl-markdown-content table {
+  font-size: var(--sl-text-sm);
+  display: block;
+  overflow-x: auto;
+}
+.sl-markdown-content th {
+  font-weight: 600;
+}
+
+/* Inline code: subtle, technical. */
+.sl-markdown-content :not(pre) > code {
+  font-size: 0.9em;
+}
+
+/* A small "draft / pre-v1.0" status pill, used on the landing page and intros. */
+.ob-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5ch;
+  font-family: var(--sl-font-mono);
+  font-size: var(--sl-text-xs);
+  letter-spacing: 0.02em;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--sl-color-accent);
+  border-radius: 999px;
+  color: var(--sl-color-text-accent);
+  background: color-mix(in srgb, var(--sl-color-accent) 12%, transparent);
+}
+
+/* Two-pillar cards spacing tweak. */
+.sl-markdown-content .card-grid {
+  margin-top: 1.5rem;
+}
+
+/* De-emphasise the site title weight to feel more like a spec masthead. */
+.site-title {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}

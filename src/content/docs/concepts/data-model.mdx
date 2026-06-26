@@ -1,0 +1,93 @@
+---
+title: The data model
+description: A plain-language tour of the OpenBody data model — the record envelope, addressable record kinds, conformance tiers, and extensions.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+This page explains the OpenBody data model in plain terms. It is a simplified companion to
+the normative text — where the two differ, [`SPEC.md`](/specification/spec/) wins.
+
+## Everything is a record with a shared envelope
+
+OpenBody models data as **records**. There are eight addressable record kinds:
+
+| Pillar | Record kinds |
+|---|---|
+| A — Observation | `Measurement` |
+| B — Structured Training | `Program`, `Session`, `Block`, `Exercise`, `WorkUnit` |
+| Shared / context | `ThresholdProfile`, `StatusPeriod` |
+
+Nested elements like `Rep` and value objects like `Target` and `Load` are **sub-objects**,
+not standalone records.
+
+Every record — in either pillar — carries the same **record envelope** (§7). That envelope
+is what lets records from different sources reference, deduplicate, correct, and relate to
+one another:
+
+- **Identity** — `id` (globally-unique, producer-assigned, stable), `recordType` (the
+  discriminator), `subject` (who the record is about), and optional `clientRecordId` (the
+  source app's own key).
+- **Typed links** — a `links` array of `{ type, ref }`, where `type` is a closed core
+  relation: `partOf`, `sameActivityAs`, `derivedFrom`, `peerSensor`, `measuredBy`,
+  `performedFrom`, `groupActivity`. Novel relations are namespaced extension links — never
+  an overloaded core type.
+- **Provenance** — `method` (`manual｜sensor｜estimated｜algorithm`), `device`, `sourceApp`,
+  optional `algorithm` and `confidence`.
+- **Lifecycle** — records are **immutable**: `status` (`active｜superseded｜deleted`,
+  absent ⇒ `active`), `supersedes`, `revision`.
+
+<Aside type="tip" title="Simple stays simple">
+`status` defaults to `active`, so the overwhelming majority of records carry **no lifecycle
+machinery at all**. Optional and recommended fields surface only when they are doing work.
+A minimum-viable record is trivial to produce.
+</Aside>
+
+## Conformance tiers
+
+Each model element has a **tier** — the per-element columns in SPEC §§4–7 are normative:
+
+- **Required (core)** — an implementation **MUST** read and write these; without them
+  interoperation is meaningless.
+- **Recommended** — an implementation **SHOULD** support these; if it doesn't, it **MUST**
+  preserve them losslessly.
+- **Optional** — **MAY** support; unsupported optional elements that appear on input
+  **MUST** still be preserved.
+
+There are also `conditional` (required only when a stated condition holds) and
+`required-in-X` (structural to a record kind) tokens.
+
+<Aside type="caution" title="Lossless passthrough is mandatory at every tier">
+Anything an implementation doesn't understand — a recommended field, an optional field, or
+a namespaced extension — **MUST round-trip unchanged**. "Not supported" never means "may be
+deleted." This is the backbone of the portability mission.
+</Aside>
+
+## Immutability & corrections
+
+Records are never edited in place. To correct one, emit a **new** record with a new `id`, a
+`supersedes` pointer at the prior record, and an incremented `revision`; the prior record's
+`status` becomes `superseded`. A **deletion** is a **tombstone** — a record with
+`status: deleted` — not a physical removal, so references and sync lineage stay intact. To
+satisfy GDPR Article 17, a tombstone strips `subject` and all payload fields on the wire,
+leaving only `id`, `recordType`, and `status: deleted` (zero PII).
+
+## Extend, don't modify
+
+OpenBody is extended by **adding under a namespace, never by changing the core** (§8.1).
+Namespaces are reverse-DNS (`com.acme.metric`) or a registry-allocated prefix (`acme:`). An
+`extension` value is an object keyed by namespace, so independent extenders never collide:
+
+```json
+"extension": { "com.acme.metric": { "moodScore": 7 }, "acme": { "uiColor": "#ff0" } }
+```
+
+An extension **MUST NOT** change the meaning of a core field, and a consumer that doesn't
+understand it **MUST** preserve it and **MAY** ignore it. This is the mechanism that lets
+any surveyed niche be addable **without a core release** — no structural dead-ends.
+
+## Where to go next
+
+- [The two pillars](/concepts/pillars/) — Observation and Structured Training in detail.
+- [Exercise identity](/concepts/exercise-identity/) — the hybrid registry + facets + crosswalk model (§6).
+- [Canonicalization & equivalence](/concepts/canonicalization/) — what "lossless round-trip" means (§8.3).

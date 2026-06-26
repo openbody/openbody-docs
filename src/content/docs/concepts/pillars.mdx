@@ -1,0 +1,84 @@
+---
+title: The two pillars
+description: Pillar A (Observation / telemetry) and Pillar B (Structured Training), and the rule that B references A rather than duplicating it.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+OpenBody is organized around **two co-equal pillars**. Pillar A alone would make it just
+another telemetry format; Pillar B is what no incumbent provides and is the standard's
+primary differentiator. Both are first-class in v1.
+
+## Pillar A — Observation (telemetry)
+
+Pillar A models telemetry: continuous or instantaneous **measurements** of a subject. Its
+single atom is the **`Measurement`** (§4). A `Measurement` carries a `type`, exactly one
+**value shape**, a conditional `unit`, and a `startTime`/`endTime`.
+
+The value is a **closed one-of** — exactly one of these keys appears at the record root:
+
+| Shape | Use |
+|---|---|
+| `quantity` | A single number, or a fixed-point `{coefficient, exponent}` for lossless decimals (e.g. body mass). Also how **aggregates** are carried — a daily step total is a `quantity` whose `startTime`/`endTime` bound the window. |
+| `category` | A discrete categorical state (e.g. `sleep_deep`, `afib`). No `unit`. |
+| `sampleArray` | A sampled series — scalar or vector, regular (`frequencyHz`) or irregular (`offsets`). The only form that scales to continuous sensor data. |
+
+A **GPS route** is a multi-channel `sampleArray` with location channels `lat`, `lon`,
+`alt`, typically irregular. **Categorical series** (a night of sleep stages) are carried as
+multiple `category` Measurements over adjacent intervals — *not* a `sampleArray` (which is
+numeric-only). Dropped samples are `null`.
+
+<Aside type="note" title="Lazy terminology">
+Ingestion never fails because a `type` has no clinical code. Any source token is accepted —
+a registered canonical token (`heart_rate`) or a namespaced source token (`apple:…`,
+`garmin:…`). Mapping to LOINC / SNOMED / UCUM / IEEE 11073 happens **on output**, not at
+ingest — so consumer metrics with no clinical equivalent ("Readiness", "Strain") are never
+blocked. FHIR/clinical mapping is a first-class *future* target, not a v1 optimization.
+</Aside>
+
+## Pillar B — Structured Training (exercise)
+
+Pillar B models the **prescription and execution** of exercise through a containment
+hierarchy. **Every level above `WorkUnit` is optional** — the model collapses gracefully.
+
+```
+Program / Plan        ordered sessions over time (e.g. 5/3/1, a marathon block)
+  └─ Session          one training occurrence; planned and/or performed
+       └─ Block        a group; MAY repeat, MAY nest, MAY carry a scoring scheme
+            └─ Exercise   an exercise occurrence (refs an ExerciseRef + descriptors)
+                 └─ WorkUnit   the atom — strictly one set; scored by kind
+                      └─ Rep*  optional per-rep detail
+```
+
+The minimum viable training record is a **single `WorkUnit`** — the one required-tier
+element of the Training-core profile. A `WorkUnit.scoring` kind is one of
+`reps｜time｜distance｜continuous｜energy`.
+
+Key ideas:
+
+- **Planned vs performed are both first-class.** A planned unit carries `prescription`; a
+  performed one carries `performance`; a record may carry both. Separate records link via
+  the `performedFrom` envelope link.
+- **Targets are polymorphic.** A metric may be a scalar or a `Target` — `absolute`,
+  `range`, `relativeToThreshold` (e.g. 80% of 1RM), or `stopCondition` (e.g. `to_failure`,
+  `to_rpe`). See [canonicalization](/concepts/canonicalization/).
+- **Effort is plural.** A `WorkUnit` may carry an array of `EffortLoad` entries, each
+  tagging its method (`RPE｜RIR｜sRPE｜TRIMP｜TSS｜VBT｜%1RM｜…`) and source.
+- **Block-level scoring** spans multiple exercises — `amrap`, `for_time`, `emom`, `tabata`,
+  `rounds` — the case no incumbent models cleanly. Per-atom scoring lives on the `WorkUnit`.
+- **Sets shorthand.** A *planned* `prescription` may use `sets: N`, defined to expand to N
+  identical `WorkUnit`s. A *performed* record enumerates one `WorkUnit` per actual set.
+
+## Pillar B references Pillar A — it never duplicates telemetry
+
+A structured-training record **MUST NOT** re-invent telemetry. Where a set or session has
+associated time-series data — the heart-rate trace during an interval, the barbell velocity
+of a rep, the GPS route of a run — Pillar B **references** the corresponding Pillar A
+`Measurement` through the typed `measuredBy` link, rather than embedding or duplicating it.
+
+<Aside type="tip" title="One kind of data, modeled once">
+This is the cross-pillar rule (§1.3): each kind of data is modeled once, in the pillar that
+owns it. A run's `Session`/`WorkUnit` links via `measuredBy` to the HR-stream and GPS-route
+`Measurement`s recorded during it. The [Strava mapping guide](/mapping/strava/) shows this
+end to end.
+</Aside>

@@ -1,0 +1,77 @@
+---
+title: Canonicalization & equivalence (§8.3)
+description: What "lossless round-trip" means in OpenBody — the deterministic canonical-form procedure that lets independent implementations interoperate.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Two independent implementations only interoperate if they agree on **when two records mean
+the same thing**. OpenBody defines this precisely (§8.3): reduce each record to a
+**canonical byte string** via an ordered, deterministic algorithm, then compare those
+strings. Two records are equivalent **iff** their canonical byte strings are identical —
+regardless of JSON key order, whitespace, number spelling, or the permitted shorthands.
+
+This page explains the procedure plainly. The normative version is
+[SPEC §8.3](/specification/spec/#83-test-vectors); it is grounded on **RFC 8785 (JSON
+Canonicalization Scheme)**.
+
+## Round-trip = parse → canonicalize → serialize
+
+A "lossless round-trip" is: parse the record, reduce it to canonical form, serialize. An
+implementation demonstrates conformance by round-tripping the test vectors and comparing
+against this canonical form.
+
+## The ordered algorithm
+
+1. **Numbers → exact-decimal fixed-point.** Every number is read from its **decimal text**,
+   never via binary float (so `37.4220` is exactly `37422 × 10⁻³`, not a `float64`
+   approximation), and replaced by its **lowest-terms** fixed-point object with
+   **string** `coefficient`/`exponent`. So `72`, `72.0`, and `{coefficient: 720, exponent: -1}`
+   all become `{"coefficient":"72","exponent":"0"}`. Because they're strings, there's **no
+   2⁵³ precision ceiling** — arbitrary-precision decimals compare exactly. Timestamps are
+   likewise canonicalized to a single spelling (uppercase `T`/`Z`, `Z` for zero offset,
+   trailing-zero fractional seconds removed).
+2. **Canonicalize units.** A metric `unit` equal to the field's default is removed (so
+   `time: 120` and `time: {absolute:{value:120, unit:"s"}}` converge). A `unit` inside
+   `load.value` is moved to its canonical home, `Load.unit`.
+3. **Expand scalar metrics.** A bare scalar `n` becomes `{ "absolute": { "value": n } }` for
+   every metric field and for `load.value`.
+4. **Expand & fold `ExerciseRef`.** A bare-string ref becomes `{ "id": … }`; an explicit
+   `openbody:` prefix on a canonical id is folded to the unprefixed form.
+5. **Expand `sets`.** A `prescription` with `sets: N` is replaced by **N** sibling
+   `WorkUnit`s. (A `WorkUnit` carrying both `sets` and `performance` is invalid.)
+6. **Assign deterministic ids (root-down).** Any record still lacking an `id` gets
+   `<nearestAncestorId>#<containerField>#<index>` (e.g. `ex-1#workUnits#3`). `#` is reserved
+   in producer ids, so assigned ids never collide.
+7. **Flatten containment.** Each inlined child becomes a standalone record with an explicit
+   `partOf` link to its parent; containment arrays are removed. `subject` and the nearest
+   ancestor's `startTime`/`endTime` propagate down (an explicit value on the child wins).
+8. **Default `status`.** Absent `status` → `active`.
+9. **Serialize canonically.** Order the three **set-valued arrays** — `links`,
+   `effortLoad`, `modifiers` — by their keys (ties broken by canonical bytes); **all other
+   arrays keep their semantic order**. Then serialize per RFC 8785: lexicographic key sort,
+   canonical escaping, no insignificant whitespace.
+
+The set of canonical record byte strings (one per flattened record) is compared as an
+**unordered set**.
+
+<Aside type="caution" title="Canonicalization descends into everything">
+Steps 1–9 descend into **all** JSON structure, **including** namespaced `extension` objects
+and the opaque `script` — every value is canonicalized identically. There is no
+"verbatim / received-bytes" exception. This is distinct from the §8.1 passthrough rule:
+§8.1 guarantees unknown content is never *dropped*; §8.3 defines how it is *compared*. The
+two are consistent — canonicalization reorders and re-spells, never discards.
+</Aside>
+
+## Nested ≡ flat + `partOf`
+
+A direct payoff of flattening (step 7): the §5 hierarchy can be encoded two equivalent ways —
+a **nested document** (a child inlined in its parent, the recommended transmission form) or
+**flat + `partOf`** (a child as a standalone record linking to its container). A consumer
+**MUST NOT** treat them as different activities, and the conformance vectors assert one
+structure's two encodings equivalent.
+
+<Aside type="tip">
+The reference implementation's `normalizeDocument(doc)` runs exactly this pipeline and
+`equivalent(a, b)` compares the resulting sets. See [Getting started](/getting-started/#normalize--compare).
+</Aside>

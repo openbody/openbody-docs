@@ -1,0 +1,68 @@
+name: Deploy docs to Cloudflare Pages
+
+# Builds the Starlight site and deploys it to Cloudflare Pages (project intended for the
+# apex domain openbody.dev). See DEPLOY.md for the one-time manual setup (create the Pages
+# project, connect the repo, set build command / output dir, add the custom domain) and the
+# required secrets/variables.
+
+on:
+  push:
+    branches: [main]
+  # Allow manual runs from the Actions tab.
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: pages-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. The docs repo.
+      - name: Checkout openbody-docs
+        uses: actions/checkout@v4
+        with:
+          path: openbody-docs
+
+      # 2. The CANONICAL standard repo, checked out as a sibling so the sync step
+      #    (scripts/sync-spec.mjs) can copy SPEC.md / CHANGELOG.md / schema / conformance
+      #    at build time. The docs repo never holds a hand-edited fork of the spec.
+      #    NOTE: `openbody/openbody` is currently private — this checkout needs a token with
+      #    read access to it (STANDARD_REPO_TOKEN). See DEPLOY.md.
+      - name: Checkout openbody standard
+        uses: actions/checkout@v4
+        with:
+          repository: openbody/openbody
+          path: openbody
+          token: ${{ secrets.STANDARD_REPO_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: openbody-docs/package-lock.json
+
+      - name: Install dependencies
+        working-directory: openbody-docs
+        run: npm ci
+
+      - name: Build site
+        working-directory: openbody-docs
+        # The sync step resolves the standard from OPENBODY_STANDARD; point it at the sibling.
+        env:
+          OPENBODY_STANDARD: ${{ github.workspace }}/openbody
+        run: npm run build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # The Pages project name created in the Cloudflare dashboard (see DEPLOY.md).
+          command: pages deploy openbody-docs/dist --project-name=openbody-docs --branch=main

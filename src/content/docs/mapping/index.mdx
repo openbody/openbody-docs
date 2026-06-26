@@ -1,0 +1,50 @@
+---
+title: Mapping guides
+description: Turn a real incumbent export into OpenBody records — the principles, and one guide each for Hevy, Strong, Strava, and Apple Health.
+---
+
+import { Aside, LinkCard, CardGrid } from '@astrojs/starlight/components';
+
+Bidirectional mapping to and from incumbent schemas is OpenBody's **primary success
+measure** and its adoption wedge: the standard is a **universal adapter**. These guides are
+built from the real mappers in [`openbody-ts/src/mappers`](https://github.com/openbody/openbody-ts/tree/main/src/mappers)
+— pure `input → records[]` functions, round-trip tested (`npm run mappers`).
+
+<Aside type="note" title="The lossless guarantee is directional (§10)">
+- *incumbent → OpenBody* is **lossless** — OpenBody is the superset; anything lacking a core
+  home is preserved via extensions or the opaque fallback.
+- *source → OpenBody → source* (a **source-anchored round-trip**) is **lossless**.
+- Emitting OpenBody's full expressiveness *into a less-expressive target* (a %1RM target or
+  a superset into a schema with no field for it) is necessarily best-effort and **bounded by
+  that target** — a limit of the target, not a defect of OpenBody.
+</Aside>
+
+## Mapping principles (§10.1)
+
+- **Canonical-plus-residue.** Map each source construct to its canonical OpenBody
+  equivalent; carry anything with no canonical home in **namespaced extensions** or, for
+  identity, the **opaque** fallback. Nothing is dropped.
+- **Lazy terminology.** Source type tokens are preserved source-namespaced on ingest and
+  resolved to external codes (LOINC / SNOMED / UCUM / MET) only on output.
+- **Provenance preserved.** Source platform, app, and device become registry-backed
+  provenance tokens; the source's own key becomes `clientRecordId`.
+- **Round-trip.** Source → canonical → source **MUST** preserve meaning under the
+  [§8.3 equivalence rule](/concepts/canonicalization/).
+
+## The guides
+
+<CardGrid>
+  <LinkCard title="Hevy" href="/mapping/hevy/" description="Strength CSV → Session / Block(superset) / Exercise / WorkUnit, with reps/load/RPE and set roles." />
+  <LinkCard title="Strong" href="/mapping/strong/" description="Strong CSV → the same shape, with an app-specific extension namespace." />
+  <LinkCard title="Strava" href="/mapping/strava/" description="Activity + streams → sampleArray Measurements + a Session linked by measuredBy. Both pillars." />
+  <LinkCard title="Apple Health / Health Connect" href="/mapping/apple-health/" description="export.xml → quantity / category Measurements + HKWorkout → Session. Health Connect maps identically." />
+</CardGrid>
+
+<Aside type="tip" title="What fit cleanly, and what to watch">
+Real-data dogfooding found **no model gaps** for strength (Hevy/Strong), telemetry
+(Strava), or Pillar A (Apple Health). Three things to keep in mind, surfaced by the
+mappers: every app has a workout **title** (now the v0.3 `name`); `derivedFrom` ⇒
+`provenance.algorithm` is *recommended* and incumbents rarely publish it; and a `Session`
+carries **at most one** container kind (§5.3), so a mix of supersets + standalone exercises
+maps to **all-blocks**.
+</Aside>

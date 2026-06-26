@@ -1,0 +1,25 @@
+{
+  "name": "openbody-docs",
+  "type": "module",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Documentation site for the OpenBody standard (Astro + Starlight).",
+  "scripts": {
+    "sync": "node scripts/sync-spec.mjs",
+    "dev": "npm run sync && astro dev",
+    "start": "npm run sync && astro dev",
+    "build": "npm run sync && astro build",
+    "preview": "astro preview",
+    "astro": "astro",
+    "check": "astro check"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.30.3",
+    "astro": "^5.1.1",
+    "sharp": "^0.33.5"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.4",
+    "typescript": "^5.7.2"
+  }
+}

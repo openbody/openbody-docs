@@ -1,0 +1,67 @@
+---
+title: Conformance
+description: OpenBody conformance profiles, the test vectors, and how to claim "OpenBody Compatible".
+---
+
+import { Aside, LinkCard } from '@astrojs/starlight/components';
+
+Conformance is **testable**: an implementation demonstrates it by **round-tripping** the
+published test vectors for the profile and tier it claims, comparing against the
+[§8.3 canonical form](/concepts/canonicalization/). The per-element tier assignments in
+SPEC §§4–7 are normative for *what* is tested.
+
+## Two core profiles — one per pillar
+
+A **profile** is a named set of record kinds and required elements an implementation can
+claim, so a single-pillar implementation can be fully conformant.
+
+### Observation core
+- **Required:** `Measurement` with `type`, a value (one of
+  `quantity｜category｜sampleArray`), conditional `unit`, `startTime`, `endTime`; envelope
+  `id` + `recordType` + `subject`.
+- **Recommended:** `provenance`; `sampleArray` multi-channel + `offsets`; `derivedFrom`.
+
+### Training core
+- **Required:** `WorkUnit` with `scoring`; envelope `id` + `recordType` + `subject`. All
+  five `WorkUnit.scoring` kinds (`reps｜time｜distance｜continuous｜energy`) **MUST** be
+  readable.
+- **Recommended:** containment (`Session`/`Block`/`Exercise`, nested and flat + `partOf`);
+  `Block.scoring` schemes; the `prescription`/`performance` duality + `performedFrom`; the
+  `ExerciseRef` resolution ladder; `EffortLoad`, `Load`, `Target`.
+
+An implementation **MAY** claim both profiles and declare recommended/optional supersets.
+
+<Aside type="caution" title="Asymmetric conformance, lossless at every tier">
+Producer and consumer conformance may be **asymmetric**: a producer conforms if its output
+validates against the profiles it emits; a consumer conforms if it correctly reads required
+elements and **preserves the rest**. Lossless passthrough of unsupported elements is
+mandatory at every tier.
+</Aside>
+
+## The test vectors
+
+Each profile ships a published test-vector suite; you demonstrate conformance by
+round-tripping the vectors for the tier and profile you claim. See
+[Run the conformance vectors](/getting-started/vectors/) for what they cover and how to run
+them, and the [reference conformance README](/conformance/conformance-readme/) for the
+canonical text.
+
+Conformance is also stated against **registry versions**: an `ExerciseRef` names its
+`registry` + `version`, and a conformance claim names the spec semver and the registry
+versions it was validated against (§8.4).
+
+## Claiming "OpenBody Compatible"
+
+The "OpenBody" trademark remains the property of the steward (and later a neutral
+foundation). A free, royalty-free **Trademark License Policy** grants any implementer the
+right to use an **"OpenBody Compatible"** mark **provided their implementation validates
+against the official conformance test suite** (§9.4). See [Governance](/governance/).
+
+<Aside type="note" title="TODO — author input needed">
+The **Trademark License Policy** document itself is referenced by the standard but is not
+yet present in the source repositories. When it is published, link it here and from
+[Governance](/governance/). This page describes the policy's effect as stated in `SPEC.md`
+§9.4 / `GOVERNANCE.md`, not the policy text.
+</Aside>
+
+<LinkCard title="Reference conformance README →" href="/conformance/conformance-readme/" description="The canonical conformance/README.md, synced from the standard repository." />
