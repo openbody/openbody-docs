@@ -8,47 +8,55 @@ site and deploys it on every push to `main`. **None of the Cloudflare project or
 created by this repo** — the steps below are manual, one-time, and must be done by the
 author/owner.
 
-> The build single-sources the spec: `scripts/sync-spec.mjs` copies `SPEC.md`,
-> `CHANGELOG.md`, the JSON Schema, and the conformance README from the **canonical
-> `openbody/openbody` repo** at build time. CI checks that repo out as a sibling — so the
-> deploy needs read access to it (see secrets below).
+## The deploy model (read this first — it explains every step below)
 
-## 1. Create the GitHub repository (manual)
+This site is built from **two repositories**:
 
-The docs live on a local branch only; nothing has been pushed.
+- **`openbody-docs`** — this repo (the site).
+- **`openbody`** — the canonical standard. At build time `scripts/sync-spec.mjs` copies
+  `SPEC.md`, `CHANGELOG.md`, the JSON Schema, and the conformance README out of it (single
+  source of truth — this repo never holds a hand-edited fork). Override its location with
+  `OPENBODY_STANDARD`.
 
-1. Create a repo under the **`openbody` org**, e.g. `openbody/openbody-docs` (private until
-   the public draft release).
-2. Add the remote and push:
-   ```bash
-   cd ~/src/openbody/openbody-docs
-   git remote add origin git@github.com:openbody/openbody-docs.git
-   git push -u origin main
-   ```
+**Therefore whatever runs `npm run build` must have *both* repos available.** That one fact
+decides the architecture:
 
-## 2. Create the Cloudflare Pages project (manual)
+> ⚠️ **Do NOT use Cloudflare's "Connect to Git" build.** Cloudflare Pages' Git integration
+> clones exactly **one** repo into its build container — there is no "second repo" option. So
+> `npm run build` would run without `../openbody`, and the sync step would fail.
+>
+> **We build in GitHub Actions and have Cloudflare only *host* the result.** The workflow
+> checks out both repos (`actions/checkout` twice), runs the build, then uses Wrangler to
+> upload the finished `dist/` to a Cloudflare Pages **Direct Upload** project. The only
+> credential for the private `openbody` repo (`STANDARD_REPO_TOKEN`) stays in GitHub secrets.
 
-In the Cloudflare dashboard → **Workers & Pages → Create → Pages**:
+*Alternatives considered and rejected:* (a) cloning `openbody` inside Cloudflare's own build
+command — works, but copies a GitHub token into Cloudflare's env (a second place to hold and
+rotate a credential); (b) committing a generated spec snapshot into this repo so a one-repo
+build suffices — works, but puts a generated fork of the spec in git, against the
+single-source design. Use one of these only if you deliberately want a Cloudflare-native or
+standalone build; the default path is GitHub Actions.
 
-- **Connect to Git** and select `openbody/openbody-docs` *(optional — the included GitHub
-  Actions workflow can deploy via Wrangler instead; pick one path, see step 4).*
-- **Project name:** `openbody-docs` (must match `--project-name` in the workflow).
-- **Production branch:** `main`.
-- **Framework preset:** Astro.
-- **Build command:** `npm run build`
-- **Build output directory:** `dist`
-- **Node version:** 20 (set `NODE_VERSION=20` in the project's environment variables if the
-  default is older).
+## 1. Create the GitHub repository — DONE
 
-> ⚠️ **Cross-repo spec sync.** If you let Cloudflare's own Git integration build the site, the
-> Cloudflare build container will **not** have the sibling `openbody/openbody` checkout, so
-> `npm run build` (which runs `sync-spec.mjs`) will fail. Two options:
-> - **Recommended:** deploy via the **GitHub Actions workflow** in this repo (step 4), which
->   checks out both repos. Leave the Cloudflare project as a direct-upload (Wrangler) target
->   and do **not** enable its automatic Git builds.
-> - Or vendor the standard into this repo (e.g. a git submodule at `../openbody` or a
->   committed snapshot) so a standalone build can find it — at the cost of a second source of
->   truth to keep synced.
+The repo exists and `main` is pushed: **`openbody/openbody-docs`** (private). Nothing more to
+do here. (For reference, it was created with `gh repo create openbody/openbody-docs --private`
+and `git push -u origin main`.)
+
+## 2. Create the Cloudflare Pages project (manual) — **Direct Upload, not Git**
+
+In the Cloudflare dashboard → **Workers & Pages → Create → Pages → "Upload assets"** (the
+direct-upload option). **Do not pick "Connect to Git"** (see the deploy model above).
+
+- **Project name:** `openbody-docs` — must match `--project-name=openbody-docs` in
+  `.github/workflows/deploy.yml`.
+- Creating the project asks for an initial upload; drag in any throwaway folder (even an empty
+  one) just to finish creation. The real content arrives from the Actions workflow on the next
+  push — it does **not** matter what you upload here.
+- You do **not** set a build command, output dir, or production branch on the Cloudflare side:
+  Cloudflare is only hosting pre-built files. All build settings live in the workflow.
+
+After the project exists, do steps 4 (secrets) and 5 (trigger), then 3 (domain).
 
 ## 3. Add the custom domain (manual)
 
@@ -62,24 +70,27 @@ In the Pages project → **Custom domains → Set up a custom domain**:
 The site is configured with `site: "https://openbody.dev"` in `astro.config.mjs` (sitemap,
 canonical URLs). If you deploy to a different host, update that value.
 
-## 4. Configure GitHub Actions secrets/variables (manual)
+## 4. Configure GitHub Actions secrets (manual) — **all three required**
 
-For the included workflow (`.github/workflows/deploy.yml`), add these in the docs repo →
-**Settings → Secrets and variables → Actions**:
+The workflow (`.github/workflows/deploy.yml`) needs all three of these. Add them in the docs
+repo → **Settings → Secrets and variables → Actions → New repository secret**:
 
-| Secret | What |
-|---|---|
-| `CLOUDFLARE_API_TOKEN` | A Cloudflare API token with the **Account › Cloudflare Pages › Edit** permission. |
-| `CLOUDFLARE_ACCOUNT_ID` | Your Cloudflare account ID. |
-| `STANDARD_REPO_TOKEN` | A token (fine-grained PAT or GitHub App token) with **read** access to `openbody/openbody`, used to check out the canonical spec during the build. Not needed once that repo is public — you can switch to the default `GITHUB_TOKEN`/no token then. |
+| Secret | What | Where to get it |
+|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | API token with the **Account › Cloudflare Pages › Edit** permission. | Cloudflare → My Profile → API Tokens → Create Token. |
+| `CLOUDFLARE_ACCOUNT_ID` | Your Cloudflare account ID. | Cloudflare → Workers & Pages (right sidebar), or any zone's Overview. |
+| `STANDARD_REPO_TOKEN` | Read access to the **private** `openbody/openbody`, so the build can clone the canonical spec. A fine-grained PAT scoped to that one repo, **Contents: Read**, is enough. | GitHub → Settings → Developer settings → Personal access tokens → Fine-grained. |
 
-If you prefer Cloudflare's native Git builds over Actions, you don't need the Cloudflare
-secrets — but read the cross-repo caveat in step 2.
+> Once `openbody/openbody` is public, `STANDARD_REPO_TOKEN` is no longer needed — drop the
+> `token:` line from the "Checkout openbody standard" step in the workflow.
 
-## 5. Verify
+## 5. Trigger & verify
 
-- Push to `main`, watch the **Deploy docs to Cloudflare Pages** workflow succeed.
-- Visit the Pages `*.pages.dev` preview URL, then `https://openbody.dev` once DNS/TLS is live.
+- **Trigger:** push any commit to `main`, or run it manually — Actions tab → **Deploy docs to
+  Cloudflare Pages** → **Run workflow**.
+- Watch the workflow succeed (it checks out both repos, builds, and uploads `dist/` to the
+  Pages project).
+- Visit the Pages `*.pages.dev` URL, then `https://openbody.dev` once DNS/TLS is live (step 3).
 - Spot-check the **Specification** page renders the synced `SPEC.md` with the "Generated from
   the canonical source" banner, and that `/schema/openbody.schema.json` downloads.
 
