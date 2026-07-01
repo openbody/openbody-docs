@@ -1,6 +1,6 @@
 ---
 title: OpenBody™
-description: An open, vendor-neutral, language-agnostic standard for health & fitness data interoperability. Draft v0.3.1, pre-v1.0.
+description: An open, vendor-neutral, language-agnostic standard for health & fitness data interoperability. A pre-v1.0 draft.
 template: splash
 hero:
   tagline: An open standard so individuals own and port their health & fitness data — without platform lock-in. A canonical data model plus mapping semantics, implementable in any language.
@@ -22,13 +22,14 @@ hero:
 ---
 
 import { Card, CardGrid, Aside, LinkCard } from '@astrojs/starlight/components';
+import meta from '../../generated/spec-meta.json';
 
 <p>
-  <span class="ob-status">DRAFT · v0.3.1 · pre-v1.0</span>
+  <span class="ob-status">DRAFT · v{meta.specVersion} · pre-v1.0</span>
 </p>
 
 <Aside type="caution" title="Draft standard — in private review">
-OpenBody is a **pre-v1.0 draft (spec v0.3.1)**, currently in private review and being
+OpenBody is a **pre-v1.0 draft (spec v{meta.specVersion})**, currently in private review and being
 dogfooded before a public draft release. **Breaking changes are still possible before
 v1.0.** Nothing here should be read as a claim of broad adoption or a stable, frozen
 standard. Status and history live in the [changelog](/specification/changelog/).
@@ -82,7 +83,7 @@ OpenBody is an open standard for both.
 <CardGrid>
   <LinkCard title="Getting started" href="/getting-started/" description="Install openbody-ts, validate and normalize a record, run the vectors." />
   <LinkCard title="Concepts" href="/concepts/data-model/" description="The data model, the two pillars, exercise identity, and §8.3 canonicalization — explained plainly." />
-  <LinkCard title="Specification" href="/specification/" description="The rendered, canonical SPEC.md (v0.3.1) plus the JSON Schema." />
+  <LinkCard title="Specification" href="/specification/" description={`The rendered, canonical SPEC.md (v${meta.specVersion}) plus the JSON Schema.`} />
   <LinkCard title="Mapping guides" href="/mapping/" description="Real incumbent → OpenBody mappings: Hevy, Strong, Strava, Apple Health." />
   <LinkCard title="Conformance" href="/conformance/" description="Profiles, the test vectors, and how to claim “OpenBody Compatible”." />
   <LinkCard title="Registry" href="/registry/" description="The hand-curated canonical exercise registry, facets, and crosswalks." />
