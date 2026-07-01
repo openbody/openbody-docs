@@ -10,6 +10,17 @@ on:
     branches: [main]
   # Allow manual runs from the Actions tab.
   workflow_dispatch: {}
+  # Daily rebuild so edits to the canonical spec (openbody/openbody) are picked up even
+  # without an explicit trigger — the build re-syncs SPEC.md/CHANGELOG/schema/conformance at
+  # build time (scripts/sync-spec.mjs). Static rebuild; a no-op day just re-uploads identical
+  # bytes. 06:17 UTC (off the top of the hour to dodge scheduler congestion).
+  schedule:
+    - cron: "17 6 * * *"
+  # Instant rebuild when the canonical spec repo signals a change. The sender workflow lives
+  # in openbody/openbody and POSTs a `spec-updated` repository_dispatch here (see DEPLOY.md
+  # "Auto-rebuild on spec changes"). Optional — the daily schedule above is the fallback.
+  repository_dispatch:
+    types: [spec-updated]
 
 permissions:
   contents: read

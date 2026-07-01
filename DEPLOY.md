@@ -96,6 +96,42 @@ repo → **Settings → Secrets and variables → Actions → New repository sec
 - Spot-check the **Specification** page renders the synced `SPEC.md` with the "Generated from
   the canonical source" banner, and that `/schema/openbody.schema.json` downloads.
 
+## Auto-rebuild on spec changes
+
+The site re-syncs the canonical spec **only when this repo builds**. So an edit to `SPEC.md`
+in `openbody/openbody` won't reach the live site on its own. Two mechanisms keep it fresh:
+
+1. **Daily schedule (already on, zero setup).** The deploy workflow has a `schedule:` cron
+   (06:17 UTC) that rebuilds and redeploys, picking up any spec change within ~24 h. A day
+   with no change just re-uploads identical bytes — harmless for a static site.
+
+2. **Instant trigger (optional — needs a workflow in `openbody/openbody`).** The deploy
+   workflow also listens for a `spec-updated` `repository_dispatch`. To fire it the moment the
+   spec changes, add this workflow to the **`openbody/openbody`** repo:
+
+   ```yaml
+   # openbody/openbody/.github/workflows/notify-docs.yml
+   name: Notify docs of spec change
+   on:
+     push:
+       branches: [main]
+       paths: ["SPEC.md", "CHANGELOG.md", "schema/**", "conformance/README.md"]
+   jobs:
+     notify:
+       runs-on: ubuntu-latest
+       steps:
+         - name: Dispatch docs rebuild
+           env:
+             GH_TOKEN: ${{ secrets.DOCS_DISPATCH_TOKEN }}
+           run: gh api -X POST repos/openbody/openbody-docs/dispatches -f event_type=spec-updated
+   ```
+
+   Then add a secret **`DOCS_DISPATCH_TOKEN`** to `openbody/openbody` → a fine-grained PAT
+   scoped to **`openbody/openbody-docs`** with **Contents: Read and write** (the permission
+   the `dispatches` endpoint requires). The docs deploy runs within a minute of a spec merge.
+
+   Until this is added, the daily schedule is the fallback — nothing breaks without it.
+
 ## Local build
 
 ```bash
