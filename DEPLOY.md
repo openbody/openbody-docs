@@ -129,6 +129,26 @@ in `openbody/openbody` won't reach the live site on its own. Two mechanisms keep
    minute. Until the secret is set, `notify-docs` errors on that step — harmless, and the daily
    schedule still keeps the site fresh.
 
+## When `openbody/openbody` goes public — token cleanup
+
+Two CI secrets exist **only** to grant read access to the currently-private
+`openbody/openbody`. When that repo becomes public, retire them:
+
+- [ ] **`openbody-docs`** → `STANDARD_REPO_TOKEN`. The deploy workflow's *Checkout openbody
+      standard* step hard-codes `token: ${{ secrets.STANDARD_REPO_TOKEN }}`, so this needs a
+      **code change**: delete the `token:` line (a public repo checks out with no token), then
+      delete the repo secret.
+- [ ] **`openbody-ts`** → `STANDARD_REPO_TOKEN`. Its `conformance.yml` already falls back
+      (`token: ${{ secrets.STANDARD_REPO_TOKEN || github.token }}`), so **just delete the repo
+      secret** — the fallback handles a public repo automatically. No code change required.
+
+**Do _not_ remove `DOCS_DISPATCH_TOKEN`** (in `openbody/openbody`). It is **permanent** infra,
+unrelated to visibility: a cross-repo `repository_dispatch` always needs a PAT because the
+default `GITHUB_TOKEN` cannot trigger events in another repository, public or not.
+
+> A tracking issue mirrors this checklist so it resurfaces at go-public time —
+> `openbody/openbody-docs` issues, labelled `go-public`.
+
 ## Local build
 
 ```bash
