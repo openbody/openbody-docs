@@ -62,12 +62,28 @@ Key ideas:
 - **Targets are polymorphic.** A metric may be a scalar or a `Target` — `absolute`,
   `range`, `relativeToThreshold` (e.g. 80% of 1RM), or `stopCondition` (e.g. `to_failure`,
   `to_rpe`). See [canonicalization](/concepts/canonicalization/).
-- **Effort is plural.** A `WorkUnit` may carry an array of `EffortLoad` entries, each
-  tagging its method (`RPE｜RIR｜sRPE｜TRIMP｜TSS｜VBT｜%1RM｜…`) and source.
+- **The "how hard" axis has three distinct homes** (§5.13), so a value never has two
+  encodings: **resistance** → `load` (100 kg, 80 %1RM, a band, machine level 7);
+  **intensity** → `intensity[]` of `Intensity`, a target on a non-resistance dimension
+  (`power｜pace｜hr｜speed｜grade`, absolute / relative-to-threshold / a named `zone` like
+  `z2`); **perceived or derived effort** → `effortLoad[]` of `EffortLoad`
+  (`RPE｜RIR｜sRPE｜TRIMP｜TSS`). A %1RM is a `load`; %FTP or a HR zone is an `intensity`;
+  RPE/RIR is an `effortLoad`. All three are plural.
 - **Block-level scoring** spans multiple exercises — `amrap`, `for_time`, `emom`, `tabata`,
   `rounds` — the case no incumbent models cleanly. Per-atom scoring lives on the `WorkUnit`.
-- **Sets shorthand.** A *planned* `prescription` may use `sets: N`, defined to expand to N
-  identical `WorkUnit`s. A *performed* record enumerates one `WorkUnit` per actual set.
+  **Round structure is orthogonal to scoring:** `repetitions` (N identical rounds) or
+  `roundScheme` (laddered per-round counts, e.g. `[21,15,9]` for Fran) describe *how the
+  rounds are structured*; `scoring.scheme` describes *how the work is measured*, and they
+  compose.
+- **Physical qualities are a first-class axis** (§5.3/§5.4). A `Session` or `Block` may carry
+  `qualities` (`endurance｜strength｜power｜mobility｜flexibility｜…`) — the quality being
+  developed, **orthogonal** to `disciplines` (the activity) and `intent` (the purpose).
+- **Sport results.** A `Session` (or `Block`) may carry an `outcome` — a match score, race
+  placement, or game result — for sports whose contest *is* the session (§5.18).
+- **Sets & roundScheme shorthands.** A *planned* `prescription` may use `sets: N` (expands to
+  N identical `WorkUnit`s); a laddered block may use `roundScheme` (expands to enumerated
+  rounds). Both expand during [normalization](/concepts/canonicalization/); a *performed*
+  record enumerates the actual sets/rounds.
 
 ## Pillar B references Pillar A — it never duplicates telemetry
 

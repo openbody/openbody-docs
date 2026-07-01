@@ -38,8 +38,11 @@ against this canonical form.
    every metric field and for `load.value`.
 4. **Expand & fold `ExerciseRef`.** A bare-string ref becomes `{ "id": … }`; an explicit
    `openbody:` prefix on a canonical id is folded to the unprefixed form.
-5. **Expand `sets`.** A `prescription` with `sets: N` is replaced by **N** sibling
-   `WorkUnit`s. (A `WorkUnit` carrying both `sets` and `performance` is invalid.)
+5. **Expand `roundScheme`, then `sets`.** A `Block` with a laddered `roundScheme` (e.g.
+   `[21,15,9]`) is expanded to its enumerated rounds — each round's descendant `WorkUnit`s
+   whose primary metric is absent take that round's count — and then a `prescription` with
+   `sets: N` is replaced by **N** sibling `WorkUnit`s. Both are *planned* shorthands and must
+   not appear with a `performance`.
 6. **Assign deterministic ids (root-down).** Any record still lacking an `id` gets
    `<nearestAncestorId>#<containerField>#<index>` (e.g. `ex-1#workUnits#3`). `#` is reserved
    in producer ids, so assigned ids never collide.
