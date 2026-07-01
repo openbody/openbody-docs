@@ -43,20 +43,22 @@ The repo exists and `main` is pushed: **`openbody/openbody-docs`** (private). No
 do here. (For reference, it was created with `gh repo create openbody/openbody-docs --private`
 and `git push -u origin main`.)
 
-## 2. Create the Cloudflare Pages project (manual) — **Direct Upload, not Git**
+## 2. Create the Cloudflare Pages project — **automatic**
 
-In the Cloudflare dashboard → **Workers & Pages → Create → Pages → "Upload assets"** (the
-direct-upload option). **Do not pick "Connect to Git"** (see the deploy model above).
+You don't need to create the project by hand. The workflow's **"Ensure Cloudflare Pages
+project exists"** step creates a Direct Upload project named `openbody-docs`
+(`--production-branch=main`) on its first run if it's missing, and skips creation on later
+runs. Just make sure the three secrets in step 4 are set before you trigger it.
 
-- **Project name:** `openbody-docs` — must match `--project-name=openbody-docs` in
-  `.github/workflows/deploy.yml`.
-- Creating the project asks for an initial upload; drag in any throwaway folder (even an empty
-  one) just to finish creation. The real content arrives from the Actions workflow on the next
-  push — it does **not** matter what you upload here.
-- You do **not** set a build command, output dir, or production branch on the Cloudflare side:
-  Cloudflare is only hosting pre-built files. All build settings live in the workflow.
+- The project **must** be Direct Upload (which is what the workflow creates). Do **not**
+  create it via the dashboard's **"Connect to Git"** flow — see the deploy model above for
+  why a Cloudflare-side Git build can't work here.
+- If you'd rather create it manually anyway: Cloudflare dashboard → **Workers & Pages →
+  Create → Pages → "Upload assets"**, name it exactly `openbody-docs`, and drag in any
+  throwaway folder to finish. The real content still comes from the workflow. Don't set a
+  build command/output dir on the Cloudflare side — all build settings live in the workflow.
 
-After the project exists, do steps 4 (secrets) and 5 (trigger), then 3 (domain).
+Do steps 4 (secrets) and 5 (trigger), then 3 (domain).
 
 ## 3. Add the custom domain (manual)
 

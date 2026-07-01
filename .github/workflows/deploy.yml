@@ -1,9 +1,9 @@
 name: Deploy docs to Cloudflare Pages
 
 # Builds the Starlight site and deploys it to Cloudflare Pages (project intended for the
-# apex domain openbody.dev). See DEPLOY.md for the one-time manual setup (create the Pages
-# project, connect the repo, set build command / output dir, add the custom domain) and the
-# required secrets/variables.
+# apex domain openbody.dev). The Pages project is created automatically on first run (see the
+# "Ensure Cloudflare Pages project exists" step). See DEPLOY.md for the required secrets and
+# the one-time manual steps that remain (the three Actions secrets; adding the custom domain).
 
 on:
   push:
@@ -44,7 +44,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: openbody-docs/package-lock.json
 
@@ -59,10 +59,24 @@ jobs:
           OPENBODY_STANDARD: ${{ github.workspace }}/openbody
         run: npm run build
 
+      # Create the Pages project on first run if it doesn't exist yet, so the deploy below
+      # doesn't fail with "Project not found". Idempotent: skips creation when it exists.
+      - name: Ensure Cloudflare Pages project exists
+        working-directory: openbody-docs
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if npx -y wrangler@3 pages project list | grep -qw openbody-docs; then
+            echo "Pages project 'openbody-docs' already exists."
+          else
+            echo "Creating Pages project 'openbody-docs'…"
+            npx -y wrangler@3 pages project create openbody-docs --production-branch=main
+          fi
+
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          # The Pages project name created in the Cloudflare dashboard (see DEPLOY.md).
           command: pages deploy openbody-docs/dist --project-name=openbody-docs --branch=main
