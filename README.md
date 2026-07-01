@@ -4,8 +4,9 @@ The documentation website for the **[OpenBody™](https://openbody.dev) standard
 vendor-neutral, language-agnostic standard for health & fitness data interoperability.
 Built with **[Astro](https://astro.build) + [Starlight](https://starlight.astro.build)**.
 
-> Status: the standard is a **pre-v1.0 draft (spec v0.3.1)**, in private review. This docs
-> site reflects that — it does not claim broad adoption or a frozen standard.
+> Status: the standard is a **pre-v1.0 draft**, in private review. This docs site reflects
+> that — it does not claim broad adoption or a frozen standard. The exact spec version is
+> rendered from the synced `SPEC.md` (see `scripts/sync-spec.mjs`), never hardcoded here.
 
 ## Single-sourced spec
 

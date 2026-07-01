@@ -11,7 +11,7 @@ export default defineConfig({
     starlight({
       title: "OpenBody™",
       description:
-        "An open, vendor-neutral, language-agnostic standard for health & fitness data interoperability. Draft v0.3.1.",
+        "An open, vendor-neutral, language-agnostic standard for health & fitness data interoperability. A pre-v1.0 draft.",
       tagline: "Own and port your health & fitness data — without platform lock-in.",
       logo: { src: "./src/assets/openbody-mark.svg", alt: "OpenBody" },
       customCss: ["./src/styles/custom.css"],
@@ -43,7 +43,7 @@ export default defineConfig({
           label: "Specification",
           items: [
             { label: "Overview", link: "/specification/" },
-            { label: "SPEC.md (v0.3.1)", link: "/specification/spec/" },
+            { label: "SPEC.md", link: "/specification/spec/" },
             { label: "JSON Schema", link: "/specification/schema/" },
             { label: "Changelog", link: "/specification/changelog/" },
           ],

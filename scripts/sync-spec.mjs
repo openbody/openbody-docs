@@ -127,6 +127,12 @@ for (const dest of [
 }
 
 // ---- 5. spec-meta.json (consumed by pages) -----------------------------------
+// Derive the schema's own identity from the copied schema, so pages never hardcode it
+// (the schema `$id` is versioned on its own major.minor line — see VERSIONING.md §4).
+const schemaJson = JSON.parse(readFileSync(schemaSrc, "utf8"));
+const schemaId = schemaJson.$id ?? "";
+const schemaVersion = schemaId.match(/schema\/v(\d+\.\d+)\//)?.[1] ?? null;
+
 const metaFile = join(ROOT, "src/generated/spec-meta.json");
 ensureDir(metaFile);
 writeFileSync(
@@ -134,6 +140,8 @@ writeFileSync(
   JSON.stringify(
     {
       specVersion: SPEC_VERSION,
+      schemaId,
+      schemaVersion,
       status: "draft",
       sourceRepo: SRC_REPO,
       syncedAt: new Date().toISOString(),
@@ -142,5 +150,5 @@ writeFileSync(
     2,
   ),
 );
-console.log(`[sync-spec] wrote ${metaFile.replace(ROOT + "/", "")} (spec v${SPEC_VERSION})`);
+console.log(`[sync-spec] wrote ${metaFile.replace(ROOT + "/", "")} (spec v${SPEC_VERSION}, schema ${schemaId})`);
 console.log(`[sync-spec] done. Canonical source: ${STANDARD}`);
