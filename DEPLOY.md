@@ -131,6 +131,9 @@ in `openbody/openbody` won't reach the live site on its own. Two mechanisms keep
 
 ## When `openbody/openbody` goes public — token cleanup
 
+> Part of the project-wide **[`GO-PUBLIC.md`](https://github.com/openbody/openbody/blob/main/GO-PUBLIC.md)**
+> checklist (standard repo). This section is the docs/CI slice of it.
+
 Two CI secrets exist **only** to grant read access to the currently-private
 `openbody/openbody`. When that repo becomes public, retire them:
 
