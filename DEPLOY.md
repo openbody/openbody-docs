@@ -105,32 +105,29 @@ in `openbody/openbody` won't reach the live site on its own. Two mechanisms keep
    (06:17 UTC) that rebuilds and redeploys, picking up any spec change within ~24 h. A day
    with no change just re-uploads identical bytes — harmless for a static site.
 
-2. **Instant trigger (optional — needs a workflow in `openbody/openbody`).** The deploy
-   workflow also listens for a `spec-updated` `repository_dispatch`. To fire it the moment the
-   spec changes, add this workflow to the **`openbody/openbody`** repo:
+2. **Instant trigger (already wired — needs one secret).** The deploy workflow also listens
+   for a `spec-updated` `repository_dispatch`, and the sender that fires it already lives in
+   the spec repo: **`openbody/openbody/.github/workflows/notify-docs.yml`**. It POSTs the
+   dispatch whenever `SPEC.md` / `CHANGELOG.md` / `schema/**` / `conformance/README.md` change
+   on `main` (or when run manually). The only thing left is the token it authenticates with.
 
-   ```yaml
-   # openbody/openbody/.github/workflows/notify-docs.yml
-   name: Notify docs of spec change
-   on:
-     push:
-       branches: [main]
-       paths: ["SPEC.md", "CHANGELOG.md", "schema/**", "conformance/README.md"]
-   jobs:
-     notify:
-       runs-on: ubuntu-latest
-       steps:
-         - name: Dispatch docs rebuild
-           env:
-             GH_TOKEN: ${{ secrets.DOCS_DISPATCH_TOKEN }}
-           run: gh api -X POST repos/openbody/openbody-docs/dispatches -f event_type=spec-updated
-   ```
+   **Set up `DOCS_DISPATCH_TOKEN`** (a one-time step, done in the **`openbody/openbody`** repo):
 
-   Then add a secret **`DOCS_DISPATCH_TOKEN`** to `openbody/openbody` → a fine-grained PAT
-   scoped to **`openbody/openbody-docs`** with **Contents: Read and write** (the permission
-   the `dispatches` endpoint requires). The docs deploy runs within a minute of a spec merge.
+   1. GitHub → your avatar → **Settings → Developer settings → Personal access tokens →
+      Fine-grained tokens → Generate new token**.
+   2. **Resource owner:** the `openbody` org. **Repository access:** *Only select
+      repositories* → **`openbody/openbody-docs`**.
+   3. **Repository permissions:** **Contents → Read and write** (this is what the
+      `POST /repos/{owner}/{repo}/dispatches` endpoint requires). Leave everything else at *No
+      access*.
+   4. Generate, copy the token.
+   5. In **`openbody/openbody`** → **Settings → Secrets and variables → Actions → New
+      repository secret**: name **`DOCS_DISPATCH_TOKEN`**, paste the token.
 
-   Until this is added, the daily schedule is the fallback — nothing breaks without it.
+   Verify: `openbody/openbody` → Actions → **notify-docs** → **Run workflow**; it should
+   succeed and kick off a **Deploy docs to Cloudflare Pages** run in `openbody-docs` within a
+   minute. Until the secret is set, `notify-docs` errors on that step — harmless, and the daily
+   schedule still keeps the site fresh.
 
 ## Local build
 
