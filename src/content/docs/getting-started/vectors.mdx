@@ -55,12 +55,15 @@ The **minimum core vectors** (the conformance bar, SPEC §8.3) cover:
 
 The vector files live in [`conformance/vectors/`](https://github.com/openbody/openbody/tree/main/conformance/vectors)
 with an `index.json` manifest; the [Conformance section](/conformance/) explains profiles
-and how to claim "OpenBody Compatible". The **extended activity-coverage corpus**
-(`CORPUS.md`) is coverage validation, *not* a conformance bar.
+and how to claim "OpenBody Compatible". Alongside them, the **extended activity-coverage
+corpus** ([`conformance/corpus/`](https://github.com/openbody/openbody/tree/main/conformance/corpus),
+documented in `CORPUS.md`) is coverage validation, *not* a conformance bar.
 
-<Aside type="note">
-The conformance directory documents the intended structure and ships the minimum-core
-vectors; the broad activity-coverage **corpus** is filled out as the reference
-implementation runs the round-trip assertions against it. See the
+<Aside type="note" title="Coverage corpus">
+Beyond the minimum-core vectors, the corpus is a broad library of real-world training
+methodologies (rest-pause, cluster sets, myo-reps, drop sets, laddered rounds, …), each
+asserted to round-trip losslessly — the executable form of the "never inferior to prior art"
+gate (§3.1). `openbody-ts` runs it alongside the conformance vectors (`npm run vectors`).
+Coverage gaps found here feed the standard's change process, not a pass/fail claim. See the
 [reference conformance README](/conformance/conformance-readme/).
 </Aside>
