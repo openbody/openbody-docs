@@ -79,9 +79,14 @@ jobs:
       # developer's sibling checkout usually already has one from a previous `npm run
       # build`), but CI starts from a clean checkout every time, so this step is required,
       # not optional, before openbody-docs's `file:../openbody-ts` dependency can resolve.
+      # sync-schema (normally run via the `prepack` hook, which plain `npm run build` does
+      # NOT trigger) must run first too — validate.ts statically imports the vendored
+      # schema (also gitignored), and `tsc` fails outright if it's missing rather than
+      # producing a broken build. sync-schema reads the sibling `openbody` checkout via the
+      # same default relative path (`../openbody`) this workflow already lays out.
       - name: Build openbody-ts
         working-directory: openbody-ts
-        run: npm ci && npm run build
+        run: npm ci && npm run sync-schema && npm run build
 
       - name: Install dependencies
         working-directory: openbody-docs
