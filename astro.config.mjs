@@ -23,6 +23,7 @@ export default defineConfig({
       lastUpdated: true,
       sidebar: [
         { label: "Home", link: "/" },
+        { label: "Convert your data", link: "/tools/convert/", badge: { text: "beta", variant: "caution" } },
         {
           label: "Getting started",
           items: [

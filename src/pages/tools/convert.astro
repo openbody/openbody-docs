@@ -1,0 +1,450 @@
+---
+// The project's primary demoable artifact: upload a real fitness-app export, watch it get
+// parsed into portable OpenBody JSON, entirely client-side. No file ever leaves the browser.
+//
+// This is a custom Astro page (outside the `docs` content collection) rather than an .mdx
+// page, because it needs real interactivity (file upload, in-browser parsing, a client-side
+// download) — Starlight's content collection is markdown/static. `StarlightPage` gives it the
+// same header/sidebar/theme chrome as the rest of the site while letting the body be
+// hand-written HTML + a vanilla client-side `<script>` (no UI framework needed or installed).
+//
+// Parsing uses a VENDORED copy of openbody-ts's Hevy mapper (see src/lib/hevy/ for why —
+// short version: the published import path pulls in `node:fs` and breaks the browser build).
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import { Aside } from "@astrojs/starlight/components";
+---
+
+<StarlightPage
+  frontmatter={{
+    title: "Convert your workout data",
+    description:
+      "Upload a Hevy CSV export and see it parsed into portable OpenBody JSON, entirely in your browser. No signup, no server, no upload.",
+    tableOfContents: false,
+  }}
+>
+  <p><span class="ob-status">EXPERIMENTAL · pre-v1.0 tool</span></p>
+
+  <p class="ob-lede">
+    Your workout history is stuck in whatever app you logged it in. This is a small demo of
+    what OpenBody is for: pick a real export from a fitness app, watch it parsed into a
+    portable, human-readable record in your own browser, and download the result. Nothing is
+    uploaded anywhere — the parsing code runs on your machine, not a server.
+  </p>
+
+  <Aside type="caution" title="Early, experimental, one source format">
+    OpenBody itself is a <strong>pre-v1.0 draft standard</strong> (see the
+    <a href="/specification/">specification</a>), and this converter is a first pass at a demo
+    tool, not a finished product. It currently reads <strong>one</strong> source format — a
+    <strong>Hevy</strong> CSV export — and the mapping it uses hasn't been through the same
+    scrutiny as the reference mappers in
+    <a href="https://github.com/openbody/openbody-ts">openbody-ts</a>. More source apps
+    (Strong, Strava, Apple Health, FIT) are planned; see the
+    <a href="/mapping/">mapping guides</a> for the mappings that already exist in the
+    reference implementation.
+  </Aside>
+
+  <h2>How it works</h2>
+  <ol>
+    <li>Export your workout history from Hevy as CSV (Hevy app → Profile → Export Data).</li>
+    <li>Drop the file below. Parsing happens entirely in your browser via JavaScript — the
+      file is never sent anywhere.</li>
+    <li>Review the human-readable preview, then download the portable OpenBody JSON.</li>
+  </ol>
+
+  <div id="convert-tool" class="ob-tool">
+    <label id="drop-zone" for="file-input" class="ob-dropzone">
+      <input id="file-input" type="file" accept=".csv,text/csv" />
+      <span class="ob-dropzone-title">Choose a Hevy CSV export, or drag it here</span>
+      <span class="ob-dropzone-sub">Nothing is uploaded — parsing happens in your browser.</span>
+    </label>
+
+    <p id="status" class="ob-status-msg" role="status" aria-live="polite" hidden></p>
+
+    <div id="preview" class="ob-preview" hidden></div>
+
+    <button id="download-btn" type="button" class="ob-btn ob-btn-primary" hidden>
+      Download as OpenBody JSON
+    </button>
+
+    <div id="email-capture" class="ob-email-card" hidden>
+      <form id="email-form">
+        <p class="ob-email-title">Want to know when more apps are supported?</p>
+        <p class="ob-email-sub">
+          Optional — totally skippable. We'll only email about new source formats for this
+          tool and major OpenBody milestones.
+        </p>
+        <div class="ob-email-row">
+          <input
+            id="email-input"
+            type="email"
+            name="email"
+            placeholder="you@example.com"
+            required
+            aria-label="Email address"
+          />
+          <button type="submit" class="ob-btn ob-btn-secondary">Notify me</button>
+          <button id="email-dismiss" type="button" class="ob-btn ob-btn-ghost">No thanks</button>
+        </div>
+        <p id="email-status" class="ob-email-status" role="status" aria-live="polite"></p>
+      </form>
+    </div>
+  </div>
+
+  <h2>What is "OpenBody JSON"?</h2>
+  <p>
+    The downloaded file is an array of OpenBody <code>Session</code> records — the same wire
+    format documented in the <a href="/mapping/hevy/">Hevy mapping guide</a> and validated
+    against the <a href="/specification/schema/">JSON Schema</a>. It's a plain, inspectable
+    JSON file you own: move it between tools, check it into your own backup, or feed it to
+    anything else that speaks OpenBody.
+  </p>
+
+  <script>
+    import { mapHevy } from "../../lib/hevy/mapper";
+    import { summarizeSessions, formatSetLine, type SessionSummary } from "../../lib/hevy/summarize";
+
+    const fileInput = document.getElementById("file-input") as HTMLInputElement;
+    const dropZone = document.getElementById("drop-zone") as HTMLElement;
+    const statusEl = document.getElementById("status") as HTMLElement;
+    const previewEl = document.getElementById("preview") as HTMLElement;
+    const downloadBtn = document.getElementById("download-btn") as HTMLButtonElement;
+    const emailCapture = document.getElementById("email-capture") as HTMLElement;
+    const emailForm = document.getElementById("email-form") as HTMLFormElement;
+    const emailInput = document.getElementById("email-input") as HTMLInputElement;
+    const emailStatus = document.getElementById("email-status") as HTMLElement;
+    const emailDismiss = document.getElementById("email-dismiss") as HTMLButtonElement;
+
+    let lastRecords: unknown[] | null = null;
+    let lastBaseName = "openbody-export";
+
+    function setStatus(message: string, kind: "info" | "success" | "error") {
+      statusEl.hidden = false;
+      statusEl.textContent = message;
+      statusEl.className = `ob-status-msg is-${kind}`;
+    }
+
+    function resetPreview() {
+      previewEl.hidden = true;
+      previewEl.replaceChildren();
+      downloadBtn.hidden = true;
+      lastRecords = null;
+    }
+
+    function renderPreview(records: unknown[]) {
+      const sessions: SessionSummary[] = summarizeSessions(records as any);
+      previewEl.replaceChildren();
+
+      if (sessions.length === 0) {
+        const p = document.createElement("p");
+        p.textContent = "No sessions parsed from that file.";
+        previewEl.append(p);
+      }
+
+      for (const session of sessions) {
+        const card = document.createElement("article");
+        card.className = "ob-session-card";
+
+        const heading = document.createElement("h3");
+        heading.textContent = session.name;
+        const dateEl = document.createElement("p");
+        dateEl.className = "ob-session-date";
+        dateEl.textContent = session.dateLabel;
+        card.append(heading, dateEl);
+
+        const exList = document.createElement("div");
+        exList.className = "ob-exercise-list";
+        for (const ex of session.exercises) {
+          const exBlock = document.createElement("div");
+          exBlock.className = "ob-exercise";
+
+          const exName = document.createElement("p");
+          exName.className = "ob-exercise-name";
+          exName.textContent = ex.supersetGroup ? `${ex.name} (superset)` : ex.name;
+          exBlock.append(exName);
+
+          const setList = document.createElement("ul");
+          setList.className = "ob-set-list";
+          for (const set of ex.sets) {
+            const li = document.createElement("li");
+            li.textContent = `Set ${set.index}: ${formatSetLine(set)}`;
+            setList.append(li);
+          }
+          exBlock.append(setList);
+          exList.append(exBlock);
+        }
+        card.append(exList);
+        previewEl.append(card);
+      }
+
+      previewEl.hidden = false;
+    }
+
+    async function handleFile(file: File) {
+      resetPreview();
+      emailCapture.hidden = true;
+      setStatus(`Reading ${file.name}…`, "info");
+      try {
+        const text = await file.text();
+        const records = mapHevy(text);
+        if (!records.length) {
+          setStatus("No workouts found in that file — is it an unmodified Hevy CSV export?", "error");
+          return;
+        }
+        lastRecords = records;
+        lastBaseName = file.name.replace(/\.csv$/i, "") || "openbody-export";
+        renderPreview(records);
+        setStatus(
+          `Parsed ${records.length} workout${records.length === 1 ? "" : "s"} from ${file.name}. ` +
+            `Nothing left your browser.`,
+          "success",
+        );
+        downloadBtn.hidden = false;
+        emailCapture.hidden = false;
+      } catch (err) {
+        console.error("[convert-tool] parse failed:", err);
+        setStatus(
+          `Couldn't parse that file (${err instanceof Error ? err.message : String(err)}). ` +
+            `Make sure it's an unmodified Hevy CSV export.`,
+          "error",
+        );
+      }
+    }
+
+    fileInput?.addEventListener("change", () => {
+      const file = fileInput.files?.[0];
+      if (file) void handleFile(file);
+    });
+
+    dropZone?.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      dropZone.classList.add("is-dragover");
+    });
+    for (const evt of ["dragleave", "drop"]) {
+      dropZone?.addEventListener(evt, () => dropZone.classList.remove("is-dragover"));
+    }
+    dropZone?.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const file = e.dataTransfer?.files?.[0];
+      if (file) void handleFile(file);
+    });
+
+    downloadBtn?.addEventListener("click", () => {
+      if (!lastRecords) return;
+      const blob = new Blob([JSON.stringify(lastRecords, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${lastBaseName}.openbody.json`;
+      document.body.append(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    });
+
+    emailDismiss?.addEventListener("click", () => {
+      emailCapture.hidden = true;
+    });
+
+    emailForm?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const email = emailInput.value.trim();
+      if (!email) return;
+      const submitBtn = emailForm.querySelector("button[type=submit]") as HTMLButtonElement;
+      submitBtn.disabled = true;
+      emailStatus.textContent = "Sending…";
+      emailStatus.className = "ob-email-status";
+      try {
+        // TODO(backend): /api/subscribe is a PLACEHOLDER. There is no server behind this yet —
+        // this site builds as static output for Cloudflare Pages, with no Worker / Pages
+        // Function / KV / D1 wired up. Implementing it is a founder-level decision (which
+        // mechanism, retention, unsubscribe, etc.), not something to fake here. Until it
+        // exists this request will fail (404), and we surface that honestly below instead of
+        // showing a fake success state.
+        const res = await fetch("/api/subscribe", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ email, source: "convert-tool" }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        emailStatus.textContent = "Thanks — we'll let you know.";
+        emailStatus.className = "ob-email-status is-success";
+        emailForm.hidden = true;
+      } catch (err) {
+        console.warn("[convert-tool] /api/subscribe isn't wired up yet:", err);
+        emailStatus.textContent =
+          "Thanks for the interest — signups aren't actually wired up in this early version, " +
+          "so this didn't go anywhere yet. Check back soon.";
+        emailStatus.className = "ob-email-status is-pending";
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+  </script>
+
+  <style>
+    .ob-lede {
+      font-size: var(--sl-text-lg);
+      max-width: 60ch;
+    }
+
+    .ob-tool {
+      margin: 2rem 0;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .ob-dropzone {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.35rem;
+      text-align: center;
+      padding: 2.5rem 1.5rem;
+      border: 2px dashed var(--sl-color-gray-5);
+      border-radius: 0.5rem;
+      cursor: pointer;
+      transition: border-color 0.15s ease, background-color 0.15s ease;
+    }
+    .ob-dropzone:hover,
+    .ob-dropzone.is-dragover {
+      border-color: var(--sl-color-accent);
+      background-color: color-mix(in srgb, var(--sl-color-accent) 6%, transparent);
+    }
+    .ob-dropzone input[type="file"] {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      overflow: hidden;
+    }
+    .ob-dropzone-title {
+      font-weight: 600;
+    }
+    .ob-dropzone-sub {
+      font-size: var(--sl-text-sm);
+      color: var(--sl-color-gray-3);
+    }
+
+    .ob-status-msg {
+      font-family: var(--sl-font-mono);
+      font-size: var(--sl-text-sm);
+      padding: 0.6rem 0.9rem;
+      border-radius: 0.35rem;
+      border: 1px solid var(--sl-color-gray-5);
+    }
+    .ob-status-msg.is-info {
+      border-color: var(--sl-color-gray-4);
+    }
+    .ob-status-msg.is-success {
+      border-color: var(--sl-color-accent);
+      color: var(--sl-color-text-accent);
+      background-color: color-mix(in srgb, var(--sl-color-accent) 8%, transparent);
+    }
+    .ob-status-msg.is-error {
+      border-color: #b3261e;
+      color: #b3261e;
+    }
+
+    .ob-preview {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    .ob-session-card {
+      border: 1px solid var(--sl-color-hairline);
+      border-radius: 0.5rem;
+      padding: 1rem 1.25rem;
+      background-color: var(--sl-color-bg-nav);
+    }
+    .ob-session-card h3 {
+      margin: 0;
+    }
+    .ob-session-date {
+      margin: 0.15rem 0 0.75rem;
+      font-size: var(--sl-text-sm);
+      color: var(--sl-color-gray-3);
+    }
+    .ob-exercise-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+    .ob-exercise-name {
+      font-weight: 600;
+      margin: 0 0 0.2rem;
+    }
+    .ob-set-list {
+      margin: 0;
+      padding-left: 1.25rem;
+      font-size: var(--sl-text-sm);
+      color: var(--sl-color-gray-2);
+    }
+
+    .ob-btn {
+      font: inherit;
+      font-weight: 600;
+      padding: 0.6rem 1.1rem;
+      border-radius: 0.4rem;
+      border: 1px solid var(--sl-color-accent);
+      cursor: pointer;
+      width: fit-content;
+    }
+    .ob-btn-primary {
+      background-color: var(--sl-color-accent);
+      color: var(--sl-color-black);
+    }
+    .ob-btn-secondary {
+      background-color: transparent;
+      color: var(--sl-color-text-accent);
+    }
+    .ob-btn-ghost {
+      background-color: transparent;
+      border-color: transparent;
+      color: var(--sl-color-gray-3);
+      font-weight: 400;
+    }
+
+    .ob-email-card {
+      border: 1px solid var(--sl-color-hairline);
+      border-radius: 0.5rem;
+      padding: 1rem 1.25rem;
+      background-color: var(--sl-color-bg-nav);
+    }
+    .ob-email-title {
+      margin: 0 0 0.2rem;
+      font-weight: 600;
+    }
+    .ob-email-sub {
+      margin: 0 0 0.75rem;
+      font-size: var(--sl-text-sm);
+      color: var(--sl-color-gray-3);
+    }
+    .ob-email-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+    }
+    .ob-email-row input[type="email"] {
+      flex: 1 1 16rem;
+      font: inherit;
+      padding: 0.55rem 0.75rem;
+      border-radius: 0.4rem;
+      border: 1px solid var(--sl-color-gray-5);
+      background-color: var(--sl-color-bg);
+      color: var(--sl-color-text);
+    }
+    .ob-email-status {
+      margin: 0.6rem 0 0;
+      font-size: var(--sl-text-sm);
+    }
+    .ob-email-status.is-success {
+      color: var(--sl-color-text-accent);
+    }
+    .ob-email-status.is-pending {
+      color: var(--sl-color-gray-3);
+    }
+  </style>
+</StarlightPage>
