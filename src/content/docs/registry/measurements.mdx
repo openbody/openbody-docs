@@ -1,0 +1,91 @@
+---
+title: Measurement-type registry
+description: The OpenBody measurement-type registry — canonical Measurement.type tokens, the location sampleArray channel convention, and how to contribute.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The **measurement-type registry** is the interop anchor for `Measurement.type` ([§4.1,
+§4.5](/concepts/data-model/)) and for the canonical channel-naming convention on a
+`location` Measurement's `sampleArray`. Like the [exercise registry](/registry/exercises/),
+it is a **separate, independently-versioned, fetchable artifact, decoupled from the
+spec** — the spec defines the *mechanism* (source-native namespacing with lazy semantic
+resolution, §4.4); the registry ships *content* on its own cadence. **The data is CC0.**
+It lives in its own repository, `openbody-measurements`.
+
+## Why a separate repo from the exercise registry
+
+Measurement types are **Pillar A — Observation/telemetry** (heart rate, sleep, body
+composition, activity, power); the exercise registry is **Pillar B — Structured Training**
+(movement ids and their facets). Different domains, no subject-matter overlap — the same
+license/versioning/contributor reasoning that already separates `openbody-registry` from
+the core `openbody` spec repo.
+
+## Flat controlled vocabularies, not combinatorial entries
+
+Unlike the exercise registry, this registry has **no canonical-entry-with-facets model and
+no crosswalk** — measurement types are flat categorical tokens, not combinatorial
+movements. Each vocabulary is a controlled-vocabulary file in the open-token-set shape
+already used elsewhere in the spec for open, registry-backed fields (§5.9).
+
+| File | Covers |
+|---|---|
+| `cardiovascular.json` | `Measurement.type` — heart rate, resting HR, HRV, VO2max |
+| `respiratory.json` | `Measurement.type` — respiratory subset |
+| `sleep.json` | `Measurement.type` — sleep subset (§4.3) |
+| `body-composition.json` | `Measurement.type` — body mass, body-fat %, etc. |
+| `activity.json` | `Measurement.type` — activity/energy subset |
+| `power-pace.json` | `Measurement.type` — power/pace subset |
+| `location-channel.json` | `Measurement.sampleArray.channels[].name` for `type: "location"` — `lat`/`lon`/`alt`/`speed`/`course` |
+
+See `vocab/index.json` for the authoritative manifest.
+
+## Entry model
+
+```jsonc
+{
+  "token": "heart_rate_variability",
+  "label": "Heart Rate Variability",
+  "aliases": ["hrv"],
+  "description": "Most commonly RMSSD; producers SHOULD note the method (RMSSD/SDNN/etc.) in provenance or notes if not RMSSD. Recommended unit: ms."
+}
+```
+
+A token's recommended UCUM unit is noted in its `description` as a **hint only** — the
+record's own `unit` field is authoritative (§4.1), not this file.
+
+<Aside type="note" title="These vocabularies never close the set">
+An unrecognized `Measurement.type` string, or a namespaced source token (`apple:…`,
+`garmin:…`), always round-trips losslessly (§4.4) — that's the whole point of source-native
+namespacing with lazy semantic resolution. This registry exists so independent implementers
+**converge** on the same token for the same concept, not to constrain what's representable.
+</Aside>
+
+## Scope (v1)
+
+A narrow, hand-curated **high-frequency wedge** — the measurement types every mainstream
+health/fitness platform already exposes (Apple Health, Garmin, Google Health Connect,
+Whoop, Oura, Strava) — not an exhaustive clinical taxonomy.
+
+## How to contribute
+
+1. Decide which vocabulary file the token belongs in (or whether a new domain file is
+   warranted).
+2. Add `{ token, label, description }` (plus `aliases` if useful); note the recommended
+   UCUM unit in the description.
+3. **Validate:** `npm run check` (schema conformance + token format/uniqueness within a
+   file + cross-file token uniqueness). Green is required.
+
+<Aside type="note" title="Token stability">
+Pre-v1.0 tokens **may** change, mirroring the exercise registry's own stability posture.
+**From v1.0 they are stable.**
+</Aside>
+
+## Licensing
+
+Registry **data is CC0** — the interop registry must be completely unencumbered.
+
+<Aside type="note" title="Status">
+Started 2026-07-02 with six `Measurement.type` domain files plus `location-channel`. The
+schema, validator, and vocabularies are in place and green.
+</Aside>

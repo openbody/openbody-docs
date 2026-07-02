@@ -65,7 +65,14 @@ export default defineConfig({
             { label: "Reference README", link: "/conformance/conformance-readme/" },
           ],
         },
-        { label: "Registry", link: "/registry/" },
+        {
+          label: "Registry",
+          items: [
+            { label: "Overview", link: "/registry/" },
+            { label: "Exercise registry", link: "/registry/exercises/" },
+            { label: "Measurement-type registry", link: "/registry/measurements/" },
+          ],
+        },
         {
           label: "Project",
           items: [

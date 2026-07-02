@@ -1,0 +1,96 @@
+---
+title: Exercise registry
+description: The OpenBody exercise registry — the hand-curated canonical anchor, the facet model, crosswalks, and how to contribute.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The **exercise registry** is the interop anchor that resolves an `ExerciseRef`
+([§6](/concepts/exercise-identity/)) to a stable base movement plus structured facets. It is
+a **separate, independently-versioned, fetchable artifact, decoupled from the spec** — the
+spec defines the *mechanism*; the registry ships *content* on its own semver cadence. **The
+data is CC0.**
+
+There is a parallel **[measurement-type registry](/registry/measurements/)** (§4.5) for
+canonical `Measurement` `type` tokens and channel conventions — Pillar A's counterpart to
+this page, using the same open-vocabulary mechanism but a flatter, non-combinatorial model.
+
+## Hand-curated canonical + crosswalk
+
+The model is deliberately two-layered:
+
+- **Canonical entries** (`data/exercises.json`) are **hand-curated** for quality and stable
+  identity — each a deliberate, reviewed movement with a stable id. This is the authority.
+- **Crosswalks** (`crosswalk/<source>.json`) map a third-party source's movement id →
+  canonical id (or `null`). A crosswalk is both (1) a resolution table for refs that arrive
+  named in an incumbent system and (2) the **curation worklist** — every `null` is a
+  movement not yet curated.
+
+<Aside type="caution" title="Third-party data is crosswalked, never imported">
+Third-party datasets (e.g. free-exercise-db) are used **only as crosswalk sources** — never
+imported as canonical entries. Facets are always **hand-authored** against §6.3, regardless
+of `source`. That's how the registry's quality and id stability are *owned, not inherited*.
+</Aside>
+
+## Entry model (§6.3)
+
+```jsonc
+{
+  "id": "squat.barbell.high-bar",        // canonical, unprefixed, dot-segmented
+  "names": ["High-Bar Back Squat"],      // first is the preferred label
+  "facets": {                            // classification (intrinsic) + variation (distinguishing)
+    "modality": "strength", "movementPattern": "squat", "mechanic": "compound",
+    "anatomy": { "primary": ["quadriceps", "glutes"] },
+    "equipment": "barbell", "barPosition": "high-bar", "laterality": "bilateral"
+  },
+  "attributes": { "met": 6.0 },          // registry attribute (NOT identity), e.g. MET
+  "coded": { "wger": 73 },               // advisory crosswalk to incumbents (§6.4)
+  "source": "curated"
+}
+```
+
+Ids follow `^[a-z0-9]+(?:-[a-z0-9]+)*(?:\.[a-z0-9]+(?:-[a-z0-9]+)*)*$`. Consumers **MUST
+NOT** infer semantics from segment structure — the registry, not the string, is
+authoritative. A movement's **attributes** (e.g. MET intensity) are registry attributes of
+the base movement, **not** identity codes and not part of `ExerciseRef`.
+
+## How to contribute
+
+The canonical set starts small and grows by **reviewed addition** (PRs). Summarizing the
+registry's `CONTRIBUTING.md`:
+
+1. **Decide the base movement.** Lowercase dot-segments, `base[.variation…]`; the base is
+   the movement pattern (`squat`, `bench-press`, `curl`), variation segments narrow it.
+   Reuse an existing base where one fits — don't invent synonyms.
+2. **Order variation segments** consistently:
+   `base . equipment . position . grip . laterality`. Add a segment only when it
+   distinguishes this movement from a sibling. Atomic movements stay single-segment
+   (`plank`, `run`).
+3. **Fill facets** so they agree with the id — classification (`modality`,
+   `movementPattern`, `mechanic`, `anatomy.primary[]`) and variation (`equipment`, `grip`,
+   `stance`/`barPosition`, `laterality`, `rangeOfMotion`).
+4. **Attributes** (optional): `met` (cite the Compendium edition).
+5. **Crosswalk codes** (optional): `coded` may carry incumbent ids for *this* entry; for
+   bulk source mappings, prefer the crosswalk file.
+6. **`source`**: `"curated"`, `"compendium"` (MET-sourced attribute), or `"free-exercise-db"`
+   (a crosswalked movement seeded the entry — facets still hand-verified).
+7. **Validate:** `npm run check` (id format + uniqueness + facet conformance + crosswalk
+   integrity). Green is required.
+
+<Aside type="note" title="Id stability">
+Pre-v1.0 ids **may** change. **From v1.0 they are stable** — a published id is never
+repurposed. That is the whole point of hand-curation: get the id right once.
+</Aside>
+
+## Licensing & sources
+
+Registry **data is CC0** — the interop registry must be completely unencumbered. The v1 seed
+is **free-exercise-db** (The Unlicense / public domain), supplemented by Compendium MET
+values; share-alike (wger, CC-BY-SA) and proprietary (ExerciseDB) sources are **not** used.
+See the registry's `SOURCES.md` for the per-source evaluation.
+
+<Aside type="note" title="Status (per the registry repo)">
+The model, schema, validator, crosswalk, and CI are in place and green; canonical curation
+is ongoing (the free-exercise-db crosswalk is the worklist). The registry lives in its own
+repository, `openbody-registry`.
+</Aside>
