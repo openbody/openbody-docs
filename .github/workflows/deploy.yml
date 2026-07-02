@@ -74,6 +74,15 @@ jobs:
           cache: npm
           cache-dependency-path: openbody-docs/package-lock.json
 
+      # openbody-ts's package.json points `main`/`exports` at `dist/`, which is gitignored —
+      # a fresh checkout has no dist/ until it's built. Locally this is easy to miss (a
+      # developer's sibling checkout usually already has one from a previous `npm run
+      # build`), but CI starts from a clean checkout every time, so this step is required,
+      # not optional, before openbody-docs's `file:../openbody-ts` dependency can resolve.
+      - name: Build openbody-ts
+        working-directory: openbody-ts
+        run: npm ci && npm run build
+
       - name: Install dependencies
         working-directory: openbody-docs
         run: npm ci
