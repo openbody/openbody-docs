@@ -61,6 +61,8 @@ import { Aside } from "@astrojs/starlight/components";
 
     <p id="status" class="ob-status-msg" role="status" aria-live="polite" hidden></p>
 
+    <div id="resolution" class="ob-resolution" hidden></div>
+
     <div id="preview" class="ob-preview" hidden></div>
 
     <button id="download-btn" type="button" class="ob-btn ob-btn-primary" hidden>
@@ -107,6 +109,7 @@ import { Aside } from "@astrojs/starlight/components";
     const fileInput = document.getElementById("file-input") as HTMLInputElement;
     const dropZone = document.getElementById("drop-zone") as HTMLElement;
     const statusEl = document.getElementById("status") as HTMLElement;
+    const resolutionEl = document.getElementById("resolution") as HTMLElement;
     const previewEl = document.getElementById("preview") as HTMLElement;
     const downloadBtn = document.getElementById("download-btn") as HTMLButtonElement;
     const emailCapture = document.getElementById("email-capture") as HTMLElement;
@@ -127,8 +130,67 @@ import { Aside } from "@astrojs/starlight/components";
     function resetPreview() {
       previewEl.hidden = true;
       previewEl.replaceChildren();
+      resolutionEl.hidden = true;
+      resolutionEl.replaceChildren();
       downloadBtn.hidden = true;
       lastRecords = null;
+    }
+
+    // Exercise-identity resolution summary (SPEC §6): the mappers now climb the matching
+    // ladder via the canonical registry crosswalk, so each Exercise's `exerciseRef` carries
+    // a canonical `id` when the app's exercise name is a known movement, and always keeps
+    // the original name losslessly (`opaque`). This runs on the already-mapped records —
+    // still 100% client-side, nothing leaves the browser.
+    function renderResolution(records: any[]) {
+      const refs: { name: string; id?: string }[] = [];
+      const seen = new Set<string>();
+      for (const session of records) {
+        const exercises = [
+          ...(session.exercises ?? []),
+          ...((session.blocks ?? []).flatMap((b: any) => b.children ?? [])),
+        ];
+        for (const ex of exercises) {
+          const er = ex?.exerciseRef;
+          if (er === undefined) continue;
+          const id = typeof er === "string" ? er : er.id;
+          const name = (typeof er === "string" ? undefined : er.opaque) ?? id ?? "(unnamed)";
+          if (seen.has(name)) continue;
+          seen.add(name);
+          refs.push({ name, id });
+        }
+      }
+      if (refs.length === 0) return;
+
+      const resolved = refs.filter((r) => r.id !== undefined).length;
+      const title = document.createElement("p");
+      title.className = "ob-resolution-title";
+      title.textContent =
+        `${resolved} of ${refs.length} exercises recognized as canonical OpenBody movements` +
+        ` — the rest are kept as-is (lossless).`;
+
+      const list = document.createElement("ul");
+      list.className = "ob-resolution-list";
+      for (const r of refs) {
+        const li = document.createElement("li");
+        const nameEl = document.createElement("span");
+        nameEl.className = "ob-resolution-name";
+        nameEl.textContent = r.name;
+        li.append(nameEl);
+        if (r.id !== undefined) {
+          li.append(" → ");
+          const idEl = document.createElement("code");
+          idEl.textContent = r.id;
+          li.append(idEl);
+        } else {
+          const keptEl = document.createElement("span");
+          keptEl.className = "ob-resolution-kept";
+          keptEl.textContent = " — kept as-is (lossless)";
+          li.append(keptEl);
+        }
+        list.append(li);
+      }
+      resolutionEl.replaceChildren(title, list);
+      resolutionEl.hidden = false;
     }
 
     function renderPreview(records: unknown[]) {
@@ -193,6 +255,7 @@ import { Aside } from "@astrojs/starlight/components";
         }
         lastRecords = records;
         lastBaseName = file.name.replace(/\.csv$/i, "") || "openbody-export";
+        renderResolution(records);
         renderPreview(records);
         setStatus(
           `Parsed ${records.length} workout${records.length === 1 ? "" : "s"} from ${file.name}. ` +
@@ -346,6 +409,29 @@ import { Aside } from "@astrojs/starlight/components";
     .ob-status-msg.is-error {
       border-color: #b3261e;
       color: #b3261e;
+    }
+
+    .ob-resolution {
+      border: 1px solid var(--sl-color-hairline);
+      border-radius: 0.5rem;
+      padding: 1rem 1.25rem;
+      background-color: var(--sl-color-bg-nav);
+    }
+    .ob-resolution-title {
+      margin: 0 0 0.5rem;
+      font-weight: 600;
+    }
+    .ob-resolution-list {
+      margin: 0;
+      padding-left: 1.25rem;
+      font-size: var(--sl-text-sm);
+      color: var(--sl-color-gray-2);
+    }
+    .ob-resolution-name {
+      font-weight: 600;
+    }
+    .ob-resolution-kept {
+      color: var(--sl-color-gray-3);
     }
 
     .ob-preview {

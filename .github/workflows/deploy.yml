@@ -67,6 +67,19 @@ jobs:
           path: openbody-ts
           token: ${{ secrets.STANDARD_REPO_TOKEN }}
 
+      # 4. openbody-registry, checked out as a sibling so openbody-ts's `npm run
+      #    sync-crosswalk` (see the build step below) can vendor the exercise-name
+      #    resolution data (canonical registry name index + per-app alias tables) via its
+      #    default relative path (`../openbody-registry`). Same STANDARD_REPO_TOKEN reuse
+      #    as the other private checkouts (the fine-grained PAT's repo access list must
+      #    also include openbody-registry).
+      - name: Checkout openbody-registry
+        uses: actions/checkout@v4
+        with:
+          repository: openbody/openbody-registry
+          path: openbody-registry
+          token: ${{ secrets.STANDARD_REPO_TOKEN }}
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -84,9 +97,12 @@ jobs:
       # schema (also gitignored), and `tsc` fails outright if it's missing rather than
       # producing a broken build. sync-schema reads the sibling `openbody` checkout via the
       # same default relative path (`../openbody`) this workflow already lays out.
+      # sync-crosswalk is the same pattern for the exercise-name resolver: src/resolve.ts
+      # statically imports the (gitignored) vendor/crosswalk.json snapshot, built from the
+      # sibling `openbody-registry` checkout above.
       - name: Build openbody-ts
         working-directory: openbody-ts
-        run: npm ci && npm run sync-schema && npm run build
+        run: npm ci && npm run sync-schema && npm run sync-crosswalk && npm run build
 
       - name: Install dependencies
         working-directory: openbody-docs
