@@ -56,17 +56,16 @@ jobs:
       #    `"@openbody/openbody-ts": "file:../openbody-ts"` (the same local-dev pin used on
       #    a machine with both repos checked out side by side) resolves in CI too — no
       #    package.json change needed for this to work in either environment.
-      #    NOTE: `openbody/openbody-ts` is currently private — this checkout needs a token
-      #    with read access to it (TS_REPO_TOKEN). See README.md "Convert tool" section.
-      #    Until that secret exists this step (and therefore the whole build) fails clearly,
-      #    same as the openbody-standard checkout above did before STANDARD_REPO_TOKEN was
-      #    set up — an honest failure, not a silently degraded deploy.
+      #    NOTE: `openbody/openbody-ts` is currently private. Reuses STANDARD_REPO_TOKEN
+      #    (its fine-grained PAT's repo access list now also includes openbody-ts, alongside
+      #    openbody) rather than a second secret — one credential covering both private
+      #    checkouts this workflow needs. See README.md "Convert tool" section.
       - name: Checkout openbody-ts
         uses: actions/checkout@v4
         with:
           repository: openbody/openbody-ts
           path: openbody-ts
-          token: ${{ secrets.TS_REPO_TOKEN }}
+          token: ${{ secrets.STANDARD_REPO_TOKEN }}
 
       - name: Setup Node
         uses: actions/setup-node@v4

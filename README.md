@@ -55,19 +55,14 @@ is now fixed upstream, one remains open:
    not the intended shipped state**: swap it back to `github:openbody/openbody-ts` once that
    repo is public, or to a real npm version once the package is published.
 
-**Status / what's not done:**
-- **Production deploy is still blocked on point 2 above.** The Cloudflare Pages build
-  (GitHub Actions, no access to this machine's filesystem) cannot resolve
-  `file:../openbody-ts`, and cannot resolve `github:openbody/openbody-ts` either while that
-  repo is private. The CI workflow (`.github/workflows/deploy.yml`) now has a second
+**Status:**
+- **Production deploy.** The CI workflow (`.github/workflows/deploy.yml`) has a second
   checkout step for `openbody-ts`, reusing the same `STANDARD_REPO_TOKEN` secret already
-  used for `../openbody` (see `DEPLOY.md`) — but that secret is documented there as **a
-  fine-grained PAT deliberately scoped to only `openbody/openbody`**, so this will only
-  work once its repo access list also includes `openbody-ts` (GitHub → Settings →
-  Developer settings → Fine-grained tokens), or a second, similarly-scoped token is added
-  under a new secret name and the workflow updated to use it. Until one of those lands (or
-  `openbody-ts` is published to npm / made public), `/tools/convert/` only exists in local
-  dev / a preview build run from this machine.
+  used for `../openbody` (see `DEPLOY.md`) — its fine-grained PAT's repo access list now
+  covers both `openbody/openbody` and `openbody/openbody-ts`, one credential for both
+  private checkouts this workflow needs. Once `openbody-ts` is published to npm / made
+  public, this second checkout step (and eventually `STANDARD_REPO_TOKEN` itself, per
+  `DEPLOY.md`'s existing go-public checklist) can be retired.
 - **Email capture backend is a stub.** After a successful conversion the tool shows an
   optional "want to know when more apps are supported?" prompt. It POSTs to
   `/api/subscribe`, which does not exist — this is a static site with no Worker / Pages
