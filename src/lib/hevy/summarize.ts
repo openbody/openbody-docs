@@ -1,7 +1,7 @@
 // Turns raw OpenBody wire records (as produced by `mapHevy`) into a small, presentation-only
 // shape for the human-readable preview on /tools/convert/. Not part of the OpenBody data
 // model itself — just a view over it.
-import type { OpenBodyRecord } from "./csv";
+import type { OpenBodyRecord } from "@openbody/openbody-ts";
 
 export interface SetSummary {
   index: number;

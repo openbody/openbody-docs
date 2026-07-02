@@ -8,8 +8,9 @@
 // same header/sidebar/theme chrome as the rest of the site while letting the body be
 // hand-written HTML + a vanilla client-side `<script>` (no UI framework needed or installed).
 //
-// Parsing uses a VENDORED copy of openbody-ts's Hevy mapper (see src/lib/hevy/ for why —
-// short version: the published import path pulls in `node:fs` and breaks the browser build).
+// Parsing uses the real @openbody/openbody-ts package directly (mapHevy) — no vendored
+// copy needed: openbody-ts's validate.ts no longer pulls in node:fs/path/url at module
+// load, so the package is safe to import from browser-bundled code.
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
 import { Aside } from "@astrojs/starlight/components";
 ---
@@ -100,7 +101,7 @@ import { Aside } from "@astrojs/starlight/components";
   </p>
 
   <script>
-    import { mapHevy } from "../../lib/hevy/mapper";
+    import { mapHevy } from "@openbody/openbody-ts";
     import { summarizeSessions, formatSetLine, type SessionSummary } from "../../lib/hevy/summarize";
 
     const fileInput = document.getElementById("file-input") as HTMLInputElement;
