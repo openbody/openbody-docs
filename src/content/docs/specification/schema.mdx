@@ -49,7 +49,10 @@ the binding).
 
 ## Using it
 
-In the reference implementation, `validate(record)` runs this schema via ajv. See
-[Getting started](/getting-started/#validate-a-record). The implementation notes that a
-`validateSemantics()` pass for the context-dependent rules above is planned but not yet
-complete — those remain the implementer's responsibility today.
+In the reference implementation, `validate(record)` runs this schema via ajv **plus a
+semantic pass** covering several of the context-dependent rules above (e.g. §5.2 `Program`
+phase cross-checks, §5.5 `scoring`↔metric agreement and the `sets`/`performance` mutual
+exclusion, §5.12 `Load.unit` conditionality, §7.5 tombstone strictness). See
+[Getting started](/getting-started/#validate-a-record). Rules the pass does not cover —
+notably the §8.3 canonicalization procedure itself — remain the implementer's
+responsibility.

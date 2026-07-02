@@ -79,8 +79,9 @@ Plain machine/weighted lifts use `basis: "marked_weight"`.
   grouping superset mates in a `Block` with `grouping: "superset"`.
 - **Scoring** is chosen per set: `reps` if present, else `distance`, else `time` — so plank
   and cardio rows map cleanly alongside strength sets.
-- **Exercise identity** uses the `opaque` floor — lossless now, registry-resolvable later
-  via the [matching ladder](/concepts/exercise-identity/#the-matching-ladder).
+- **Exercise identity**: names that the [registry](/registry/exercises/) covers resolve to
+  canonical ids; anything unresolved keeps the `opaque` floor — lossless either way, per the
+  [matching ladder](/concepts/exercise-identity/#the-matching-ladder).
 
 <Aside type="note">
 Timestamps are normalized to RFC 3339; the Hevy export carries no UTC offset, so the mapper

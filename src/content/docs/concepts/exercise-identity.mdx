@@ -29,8 +29,11 @@ An `Exercise` references a movement via an **`ExerciseRef`**. The shorthand is a
 An `ExerciseRef` **MUST** carry at least one of `id` or `opaque`. A movement with no
 identity at all is invalid; `opaque` is the floor that guarantees nothing is lost. A
 producer **SHOULD** resolve to a canonical `id` where one exists; if it can't, it **MUST**
-carry `opaque`. In practice the [mappers](/mapping/) emit `exerciseRef: { opaque: "<app name>" }`
-— lossless now, registry-resolvable later.
+carry `opaque`. In practice the [mappers](/mapping/) do exactly this: source exercise names
+are resolved to canonical [registry](/registry/exercises/) ids where the registry covers
+them (one app's “Bench Press (Barbell)” and another's “Barbell Bench Press” both become
+`bench-press.barbell.flat`), and anything unresolved is emitted as
+`exerciseRef: { opaque: "<source name>" }` — lossless either way.
 </Aside>
 
 ## Facets — a stable base plus structured variation

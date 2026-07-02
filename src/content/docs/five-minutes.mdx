@@ -1,0 +1,187 @@
+---
+title: OpenBody in five minutes
+description: The core of OpenBody in five schema-valid JSON examples — a measurement, a logged set, a session, a superset, and planned vs performed.
+---
+
+import { Aside, LinkCard, CardGrid } from '@astrojs/starlight/components';
+
+OpenBody is an open, portable JSON format for health & fitness data. This page is the 20%
+you'll use every day, as five real records. **Every example below validates against the
+published [JSON Schema](/specification/schema/)** — copy them and go.
+
+Two kinds of data, one format:
+
+- **Observation** — measurements: heart rate, sleep, steps, GPS, body composition.
+- **Structured training** — sessions, exercises, sets, reps, load, and the
+  planned-versus-performed relationship.
+
+## 1. A measurement
+
+A heart-rate reading. Every measurement is `type` + value + `unit` + a time window
+(instantaneous when `startTime` equals `endTime`), with optional provenance saying where it
+came from.
+
+```json
+{
+  "id": "obs-9f2a1c",
+  "recordType": "Measurement",
+  "subject": "subj-001",
+  "type": "heart_rate",
+  "quantity": 72,
+  "unit": "/min",
+  "startTime": "2026-06-23T14:02:00Z",
+  "endTime": "2026-06-23T14:02:00Z",
+  "provenance": { "method": "sensor", "device": { "manufacturer": "apple", "model": "Watch Ultra 2" } }
+}
+```
+
+Time series (a whole HR stream, a GPS route) use the same record with a `sampleArray`
+instead of `quantity` — see [the data model](/concepts/data-model/).
+
+## 2. A logged set
+
+One set of squats: what was prescribed, and what actually happened — on the same record.
+`exerciseRef` is a canonical id from the [exercise registry](/registry/exercises/), so
+every app that speaks OpenBody agrees on *which movement this is*.
+
+```json
+{
+  "id": "wu-squat-1",
+  "recordType": "WorkUnit",
+  "subject": "subj-001",
+  "exerciseRef": "squat.barbell.high-bar",
+  "scoring": "reps",
+  "setRole": "working",
+  "prescription": { "reps": 5, "load": { "value": 100, "unit": "kg", "basis": "marked_weight" } },
+  "performance": {
+    "reps": 5,
+    "load": { "value": 100, "unit": "kg", "basis": "marked_weight" },
+    "effortLoad": [{ "kind": "internal", "method": "RPE", "value": 8 }]
+  }
+}
+```
+
+## 3. A session
+
+A workout is a `Session` containing `Exercise`s, each containing its sets (`WorkUnit`s).
+This is the shape a typical strength-app export converts into:
+
+```json
+{
+  "id": "sess-push-mon",
+  "recordType": "Session",
+  "subject": "subj-001",
+  "intent": "train",
+  "disciplines": ["strength"],
+  "name": "Push day",
+  "exercises": [
+    {
+      "id": "ex-bench",
+      "recordType": "Exercise",
+      "exerciseRef": "bench-press.barbell.flat",
+      "workUnits": [
+        { "id": "wu-bench-1", "recordType": "WorkUnit", "scoring": "reps", "setRole": "working",
+          "performance": { "reps": 8, "load": { "value": 80, "unit": "kg", "basis": "marked_weight" } } },
+        { "id": "wu-bench-2", "recordType": "WorkUnit", "scoring": "reps", "setRole": "working",
+          "performance": { "reps": 6, "load": { "value": 80, "unit": "kg", "basis": "marked_weight" } } }
+      ]
+    },
+    {
+      "id": "ex-pushup",
+      "recordType": "Exercise",
+      "exerciseRef": "push-up",
+      "workUnits": [
+        { "id": "wu-pushup-1", "recordType": "WorkUnit", "scoring": "reps",
+          "performance": { "reps": 20 } }
+      ]
+    }
+  ]
+}
+```
+
+## 4. A superset
+
+Grouping structure is a `Block`. `grouping: "superset"` says the children alternate; the
+same mechanism covers circuits, giant sets, and drop sets. This planned superset also shows
+richer prescription: `sets: 3` shorthand, %1RM relative load, RIR effort, and rest.
+
+```json
+{
+  "id": "blk-superset-1",
+  "recordType": "Block",
+  "subject": "subj-001",
+  "grouping": "superset",
+  "children": [
+    {
+      "id": "ex-001", "recordType": "Exercise", "exerciseRef": "bench-press.barbell.flat",
+      "workUnits": [{
+        "id": "wu-001", "recordType": "WorkUnit", "scoring": "reps", "setRole": "working",
+        "prescription": {
+          "sets": 3, "reps": 5,
+          "load": { "value": { "relativeToThreshold": { "percent": 80, "of": "1RM" } }, "basis": "marked_weight" },
+          "rest": { "absolute": { "value": 120, "unit": "s" } }
+        }
+      }]
+    },
+    {
+      "id": "ex-002", "recordType": "Exercise", "exerciseRef": "row.barbell.bent-over",
+      "workUnits": [{
+        "id": "wu-002", "recordType": "WorkUnit", "scoring": "reps",
+        "prescription": { "sets": 3, "reps": 8, "effortLoad": [{ "kind": "internal", "method": "RIR", "value": 2 }] }
+      }]
+    }
+  ]
+}
+```
+
+## 5. Planned vs performed
+
+A plan and its execution can also live in **separate records**, linked by a typed
+`performedFrom` link — so a coach's program and an athlete's log stay distinct but
+connected. The planned `sets: 5` shorthand expands to five work units; the performed side
+enumerates one record per actual set (here, the first).
+
+```json
+{
+  "id": "plan-squat-mon",
+  "recordType": "WorkUnit",
+  "subject": "subj-001",
+  "exerciseRef": "squat.barbell.high-bar",
+  "scoring": "reps",
+  "prescription": { "sets": 5, "reps": 5, "load": { "value": 100, "unit": "kg", "basis": "marked_weight" } }
+}
+```
+
+```json
+{
+  "id": "perf-squat-1",
+  "recordType": "WorkUnit",
+  "subject": "subj-001",
+  "exerciseRef": "squat.barbell.high-bar",
+  "scoring": "reps",
+  "links": [{ "type": "performedFrom", "ref": "plan-squat-mon" }],
+  "performance": {
+    "reps": 5,
+    "load": { "value": 100, "unit": "kg", "basis": "marked_weight" },
+    "effortLoad": [{ "kind": "internal", "method": "RPE", "value": 8 }]
+  }
+}
+```
+
+<Aside type="note" title="That's the core">
+Everything else builds on these shapes: programs wrap sessions, telemetry links to training
+via `measuredBy`, records carry provenance and an immutable-plus-supersession lifecycle,
+and anything a source app says that has no canonical home is preserved via namespaced
+extensions or the opaque fallback — nothing is dropped.
+</Aside>
+
+## Where to go deeper
+
+<CardGrid>
+  <LinkCard title="Convert your own data" href="/tools/convert/" description="Turn a real Hevy CSV export into records like these, entirely in your browser." />
+  <LinkCard title="Getting started" href="/getting-started/" description="Validate and normalize records with the TypeScript reference implementation." />
+  <LinkCard title="The standard" href="/specification/" description="The full normative SPEC.md and the JSON Schema these examples validate against." />
+  <LinkCard title="Exercise registry" href="/registry/exercises/" description="The canonical movement ids used in exerciseRef — curated, CC0." />
+  <LinkCard title="Mapping guides" href="/mapping/" description="How Hevy, Strong, Strava, Apple Health, and FIT map into these shapes." />
+  <LinkCard title="Reference implementation" href="https://github.com/openbody/openbody-ts" description="openbody-ts — validate, canonicalize, and map, in TypeScript." />
+</CardGrid>

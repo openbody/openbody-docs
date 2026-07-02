@@ -11,11 +11,13 @@ against a registry, and how unknown tokens fall back losslessly); each registry 
 on its own semver cadence. **Both are CC0** — public domain, so they can be embedded anywhere
 without contaminating downstream licenses.
 
-They're separate repositories because they're separate domains with no subject-matter
+They're separate registries because they're separate domains with no subject-matter
 overlap: an app that only ingests sleep/HR data has no use for squat-variant ids, and vice
-versa.
+versa. Both live in the [`openbody-registry`](https://github.com/openbody/openbody-registry)
+repository — the exercise registry in `data/` + `crosswalk/`, the measurement-type
+vocabularies under `vocab/measurements/`.
 
 <CardGrid>
-  <LinkCard title="Exercise registry" href="/registry/exercises/" description="Pillar B (Structured Training) — hand-curated canonical movement ids, facets, and crosswalks. openbody-registry." />
-  <LinkCard title="Measurement-type registry" href="/registry/measurements/" description="Pillar A (Observation/telemetry) — canonical Measurement.type tokens and the location sampleArray channel convention. openbody-measurements." />
+  <LinkCard title="Exercise registry" href="/registry/exercises/" description="Pillar B (Structured Training) — curated canonical movement ids, facets, and crosswalks." />
+  <LinkCard title="Measurement-type registry" href="/registry/measurements/" description="Pillar A (Observation/telemetry) — canonical Measurement.type tokens and the location sampleArray channel convention." />
 </CardGrid>

@@ -11,15 +11,16 @@ The **measurement-type registry** is the interop anchor for `Measurement.type` (
 it is a **separate, independently-versioned, fetchable artifact, decoupled from the
 spec** — the spec defines the *mechanism* (source-native namespacing with lazy semantic
 resolution, §4.4); the registry ships *content* on its own cadence. **The data is CC0.**
-It lives in its own repository, `openbody-measurements`.
+It lives in the `openbody-registry` repository, under `vocab/measurements/`.
 
-## Why a separate repo from the exercise registry
+## A separate registry from the exercise registry
 
 Measurement types are **Pillar A — Observation/telemetry** (heart rate, sleep, body
 composition, activity, power); the exercise registry is **Pillar B — Structured Training**
-(movement ids and their facets). Different domains, no subject-matter overlap — the same
-license/versioning/contributor reasoning that already separates `openbody-registry` from
-the core `openbody` spec repo.
+(movement ids and their facets). Different domains, no subject-matter overlap, and — as
+below — a different, flatter model. Both are CC0 registry content decoupled from the core
+`openbody` spec repo, so they ship together from `openbody-registry` as two
+independently-evolving registries.
 
 ## Flat controlled vocabularies, not combinatorial entries
 
@@ -38,7 +39,7 @@ already used elsewhere in the spec for open, registry-backed fields (§5.9).
 | `power-pace.json` | `Measurement.type` — power/pace subset |
 | `location-channel.json` | `Measurement.sampleArray.channels[].name` for `type: "location"` — `lat`/`lon`/`alt`/`speed`/`course` |
 
-See `vocab/index.json` for the authoritative manifest.
+See `vocab/measurements/index.json` for the authoritative manifest.
 
 ## Entry model
 

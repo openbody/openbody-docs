@@ -10,10 +10,12 @@ OpenBody record against the published JSON Schema, then run it through the §8.3
 canonical-normalization pipeline. A reference implementation is *one* implementation, not
 normative — [`SPEC.md`](/specification/spec/) is the source of truth.
 
-<Aside type="note" title="Pre-release tooling">
-`openbody-ts` is early (v0.1.0) and tracks the current OpenBody draft. It is **not yet
-published to npm** — install from a local checkout of the repository. Package names and
-install steps will firm up at the public draft release.
+<Aside type="note" title="Pre-release tooling — not yet on npm">
+The package is `@openbody/openbody-ts` (early, v0.1.0, tracking the current OpenBody
+draft). It is **not yet published to npm**, so `npm install @openbody/openbody-ts` will not
+work today. While the package is pre-release, the working setup is a **local clone**, as
+below (a git-URL install — `npm install github:openbody/openbody-ts` — becomes an option
+once the repository is public). Install steps will firm up at the public draft release.
 </Aside>
 
 ## Install
@@ -46,7 +48,7 @@ SPEC §§4–7). Validate **wire** records — not the §8.3 canonical form, whi
 *comparison* artifact, not the binding.
 
 ```ts
-import { validate } from "openbody-ts";
+import { validate } from "@openbody/openbody-ts";
 
 // A minimal reps-scored WorkUnit — the one required-tier element of Training core (§3.3).
 const workUnit = {
@@ -79,7 +81,7 @@ conditionality (§5.12); `algorithm` required when `method` is `algorithm` (§7.
 byte strings. `equivalent(a, b)` is true iff two documents normalize to the same set.
 
 ```ts
-import { equivalent } from "openbody-ts";
+import { equivalent } from "@openbody/openbody-ts";
 
 // The nested document and the flat + partOf encoding of one structure are equivalent (§7.2).
 console.log(equivalent(nestedDoc, flatDoc)); // → true
@@ -96,4 +98,7 @@ value. `npm run lossless` proves it.
 
 - [Run the conformance vectors](/getting-started/vectors/) against the reference implementation.
 - [Concepts](/concepts/data-model/) — the data model, the two pillars, exercise identity, canonicalization.
-- [Mapping guides](/mapping/) — turn a real Hevy / Strong / Strava / Apple Health export into OpenBody records.
+- [Mapping guides](/mapping/) — turn a real Hevy / Strong / Strava / Apple Health export
+  into OpenBody records. The mappers also resolve source exercise names to canonical
+  [registry](/registry/exercises/) ids where the registry covers them, falling back to a
+  lossless `opaque` string otherwise.

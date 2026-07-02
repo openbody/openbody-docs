@@ -11,7 +11,7 @@ export default defineConfig({
     starlight({
       title: "OpenBody™",
       description:
-        "An open, vendor-neutral, language-agnostic standard for health & fitness data interoperability. A pre-v1.0 draft.",
+        "Convert and reclaim your health & fitness data. OpenBody is the open, vendor-neutral format for lossless workout and health data portability — backed by a real standard. A pre-v1.0 draft.",
       tagline: "Own and port your health & fitness data — without platform lock-in.",
       logo: { src: "./src/assets/openbody-mark.svg", alt: "OpenBody" },
       customCss: ["./src/styles/custom.css"],
@@ -23,10 +23,11 @@ export default defineConfig({
       lastUpdated: true,
       sidebar: [
         { label: "Home", link: "/" },
-        { label: "Convert your data", link: "/tools/convert/", badge: { text: "beta", variant: "caution" } },
         {
-          label: "Getting started",
+          label: "Start here",
           items: [
+            { label: "OpenBody in five minutes", link: "/five-minutes/" },
+            { label: "Convert your data", link: "/tools/convert/", badge: { text: "beta", variant: "caution" } },
             { label: "Install & validate a record", link: "/getting-started/" },
             { label: "Run the conformance vectors", link: "/getting-started/vectors/" },
           ],
@@ -41,15 +42,6 @@ export default defineConfig({
           ],
         },
         {
-          label: "Specification",
-          items: [
-            { label: "Overview", link: "/specification/" },
-            { label: "SPEC.md", link: "/specification/spec/" },
-            { label: "JSON Schema", link: "/specification/schema/" },
-            { label: "Changelog", link: "/specification/changelog/" },
-          ],
-        },
-        {
           label: "Mapping guides",
           items: [
             { label: "Overview", link: "/mapping/" },
@@ -58,6 +50,15 @@ export default defineConfig({
             { label: "Strava", link: "/mapping/strava/" },
             { label: "Apple Health / Health Connect", link: "/mapping/apple-health/" },
             { label: "FIT", link: "/mapping/fit/" },
+          ],
+        },
+        {
+          label: "The standard",
+          items: [
+            { label: "Overview", link: "/specification/" },
+            { label: "SPEC.md", link: "/specification/spec/" },
+            { label: "JSON Schema", link: "/specification/schema/" },
+            { label: "Changelog", link: "/specification/changelog/" },
           ],
         },
         {

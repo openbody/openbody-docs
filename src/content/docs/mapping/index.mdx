@@ -8,7 +8,9 @@ import { Aside, LinkCard, CardGrid } from '@astrojs/starlight/components';
 Bidirectional mapping to and from incumbent schemas is OpenBody's **primary success
 measure** and its adoption wedge: the standard is a **universal adapter**. These guides are
 built from the real mappers in [`openbody-ts/src/mappers`](https://github.com/openbody/openbody-ts/tree/main/src/mappers)
-— pure `input → records[]` functions, round-trip tested (`npm run mappers`).
+— pure `input → records[]` functions, round-trip tested (`npm run mappers`). The mappers
+resolve source exercise names to canonical [registry](/registry/exercises/) ids where the
+registry covers them, falling back to the lossless `opaque` form otherwise.
 
 <Aside type="note" title="The lossless guarantee is directional (§10)">
 - *incumbent → OpenBody* is **lossless** — OpenBody is the superset; anything lacking a core

@@ -1,18 +1,18 @@
 ---
 title: OpenBody™
-description: An open, vendor-neutral, language-agnostic standard for health & fitness data interoperability. A pre-v1.0 draft.
+description: Convert and reclaim your workout data. OpenBody is the open, portable format for health & fitness data — backed by a real standard.
 template: splash
 hero:
-  tagline: An open standard so individuals own and port their health & fitness data — without platform lock-in. A canonical data model plus mapping semantics, implementable in any language.
+  tagline: Your training history belongs to you. Convert it into an open, portable format that any app can read and write — losslessly, without platform lock-in.
   image:
     file: ../../assets/openbody-mark.svg
   actions:
-    - text: Read the specification
-      link: /specification/
-      icon: right-arrow
+    - text: Convert your Hevy export now
+      link: /tools/convert/
+      icon: rocket
       variant: primary
-    - text: Getting started
-      link: /getting-started/
+    - text: OpenBody in five minutes
+      link: /five-minutes/
       icon: open-book
       variant: minimal
     - text: View on GitHub
@@ -28,72 +28,76 @@ import meta from '../../generated/spec-meta.json';
   <span class="ob-status">DRAFT · v{meta.specVersion} · pre-v1.0</span>
 </p>
 
+## Get your data out
+
+Years of workouts live inside whichever app you happened to log them in — in that app's
+schema, that app's exercise names, that app's export quirks. Switching apps means losing
+history; building on top of an app means building on an API that can change under you.
+
+**[Try it now](/tools/convert/):** upload a real Hevy CSV export and watch it become
+portable OpenBody JSON — parsed, converted, and downloadable **entirely in your browser.
+Nothing leaves your machine.** No signup, no upload, no account.
+
+The timing matters. Platforms keep tightening what third parties may do with *your* data —
+Strava's API restrictions being the most visible recent example — while the **EU Data Act**
+phases in the other direction, requiring connected products to make user data accessible
+(with design obligations applying to products placed on the market from **September 2026**).
+Portable, well-specified formats are how those rights become usable in practice.
+
+## What OpenBody gives you
+
+<CardGrid>
+  <Card title="A lossless data model — both pillars" icon="seti:pipeline">
+    One format for **telemetry** (heart rate, sleep, GPS, body composition) *and*
+    **structured training** (sessions, supersets, sets, reps, %1RM, RPE, planned vs
+    performed) — the half no incumbent serves cleanly. Incumbent → OpenBody is
+    **lossless by design**: anything without a canonical home is preserved via namespaced
+    extensions or the opaque fallback. Nothing is dropped.
+  </Card>
+  <Card title="Canonical exercise identity" icon="approve-check">
+    One app's “Bench Press (Barbell)” and another's “Barbell Bench Press” become the
+    **same canonical movement**: `bench-press.barbell.flat`. A curated, CC0
+    [exercise registry](/registry/exercises/) of 740+ movements with structured facets and
+    crosswalks — and mappers resolve source names to canonical ids, falling back to a
+    lossless opaque string when they can't.
+  </Card>
+  <Card title="Open & vendor-neutral" icon="github">
+    **Fully open, not open-core**: spec under OWFa 1.0, reference code Apache-2.0, registry
+    data CC0 — implementable by anyone, in any language, no strings attached. Stewarded by
+    Thabit Labs with intent to transfer to a neutral foundation as adoption warrants.
+    See [Governance](/governance/).
+  </Card>
+</CardGrid>
+
+## Start here
+
+<CardGrid>
+  <LinkCard title="Convert your workout data" href="/tools/convert/" description="Hevy CSV → portable OpenBody JSON, entirely in your browser. The fastest way to see what OpenBody is." />
+  <LinkCard title="OpenBody in five minutes" href="/five-minutes/" description="The whole core in five schema-valid JSON examples — a measurement, a set, a session, a superset, planned vs performed." />
+  <LinkCard title="Getting started" href="/getting-started/" description="Validate and normalize records with the TypeScript reference implementation, then run the conformance vectors." />
+  <LinkCard title="Mapping guides" href="/mapping/" description="Real incumbent → OpenBody mappings: Hevy, Strong, Strava, Apple Health, FIT." />
+</CardGrid>
+
+## Built on a real standard
+
+Tools are only as good as the format underneath them. OpenBody is a **canonical data model
+plus mapping semantics** — defined independently of any serialization, with **JSON (and a
+published JSON Schema) as the primary, first-class binding**, published conformance
+profiles, and executable test vectors. Every claim above is specified, not improvised.
+
+<CardGrid>
+  <LinkCard title="Read the standard" href="/specification/" description={`The rendered, canonical SPEC.md (v${meta.specVersion}) plus the JSON Schema and changelog.`} />
+  <LinkCard title="Concepts" href="/concepts/data-model/" description="The data model, the two pillars, exercise identity, and canonicalization — explained plainly." />
+  <LinkCard title="Conformance" href="/conformance/" description="Profiles, the test vectors, and how to claim “OpenBody Compatible”." />
+  <LinkCard title="Registry" href="/registry/" description="The CC0 registries: curated exercise ids/facets and measurement-type tokens." />
+</CardGrid>
+
 <Aside type="caution" title="Draft standard — in private review">
 OpenBody is a **pre-v1.0 draft (spec v{meta.specVersion})**, currently in private review and being
 dogfooded before a public draft release. **Breaking changes are still possible before
 v1.0.** Nothing here should be read as a claim of broad adoption or a stable, frozen
 standard. Status and history live in the [changelog](/specification/changelog/).
 </Aside>
-
-## What OpenBody is
-
-OpenBody is an **open, vendor-neutral, language-agnostic standard**: a canonical data
-model plus mapping semantics that anyone can implement in any language. Its mission is
-that **individuals own and port their health and fitness data without platform lock-in**;
-its adoption lever is the **apps and platforms that implement it** to exchange that data
-losslessly.
-
-It is **fully open, not open-core** — the entire model and its mapping rules are public.
-The model is defined independently of any serialization; **JSON (with a published JSON
-Schema) is the primary, first-class binding**. OpenBody is stewarded by **Thabit Labs**,
-with intent to transfer to a neutral foundation as adoption warrants.
-
-## The two pillars
-
-<CardGrid>
-  <Card title="Pillar A — Observation (telemetry)" icon="seti:graphql">
-    Continuous or instantaneous **measurements**: heart rate, HRV, sleep, vitals, power,
-    speed, cadence, GPS. Readiness and recovery are observations, not training attributes.
-    Defined by the canonical `Measurement` (SPEC §4).
-  </Card>
-  <Card title="Pillar B — Structured Training (exercise)" icon="seti:pipeline">
-    The **prescription and execution** of training — programs, sessions, blocks,
-    exercises, work units, reps, with targets, effort, equipment, and the
-    planned-versus-performed relationship. This is what no incumbent provides cleanly
-    (SPEC §5–§6).
-  </Card>
-</CardGrid>
-
-Both pillars are **first-class**. A structured-training record never re-invents telemetry:
-Pillar B **references** Pillar A `Measurement`s through typed links (§1.3, §7). Every
-record — in either pillar — shares a common **record envelope** (§7): a stable identifier,
-typed links, provenance, and an immutable-plus-supersession lifecycle.
-
-## Why it exists
-
-Personal health and fitness data is trapped in silos. Every platform — Apple HealthKit,
-Google Health Connect, Garmin, Fitbit, Oura, Whoop, and a long tail of strength, endurance,
-and functional-fitness apps — defines its own schema, units, identifiers, and aggregation
-rules. There is no neutral, portable representation all of them can read and write.
-**Telemetry is partially standardized; structured training is barely served at all.**
-OpenBody is an open standard for both.
-
-## Try it
-
-<CardGrid>
-  <LinkCard title="Convert your workout data" href="/tools/convert/" description="Upload a real Hevy CSV export and watch it parsed into portable OpenBody JSON, entirely in your browser. No signup, no upload." />
-</CardGrid>
-
-## Start here
-
-<CardGrid>
-  <LinkCard title="Getting started" href="/getting-started/" description="Install openbody-ts, validate and normalize a record, run the vectors." />
-  <LinkCard title="Concepts" href="/concepts/data-model/" description="The data model, the two pillars, exercise identity, and §8.3 canonicalization — explained plainly." />
-  <LinkCard title="Specification" href="/specification/" description={`The rendered, canonical SPEC.md (v${meta.specVersion}) plus the JSON Schema.`} />
-  <LinkCard title="Mapping guides" href="/mapping/" description="Real incumbent → OpenBody mappings: Hevy, Strong, Strava, Apple Health, FIT." />
-  <LinkCard title="Conformance" href="/conformance/" description="Profiles, the test vectors, and how to claim “OpenBody Compatible”." />
-  <LinkCard title="Registry" href="/registry/" description="The two CC0 registries: hand-curated exercise ids/facets (Pillar B) and measurement-type tokens (Pillar A)." />
-</CardGrid>
 
 ---
 

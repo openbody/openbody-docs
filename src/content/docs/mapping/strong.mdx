@@ -83,4 +83,5 @@ Date,Workout Name,Duration,Exercise Name,Set Order,Weight,Reps,Distance,Seconds,
   principle (§10.1).
 - **Mixed scoring per exercise** works: a `Plank` row (`Seconds: 60`) becomes a
   `time`-scored `WorkUnit`; a distance row becomes `distance`-scored.
-- Exercise identity uses the `opaque` floor, like [Hevy](/mapping/hevy/).
+- Exercise identity resolves to canonical registry ids where possible, with the `opaque`
+  floor as the lossless fallback — like [Hevy](/mapping/hevy/).

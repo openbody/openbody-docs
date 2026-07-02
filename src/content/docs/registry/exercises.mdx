@@ -1,6 +1,6 @@
 ---
 title: Exercise registry
-description: The OpenBody exercise registry — the hand-curated canonical anchor, the facet model, crosswalks, and how to contribute.
+description: The OpenBody exercise registry — the curated canonical anchor, the facet model, crosswalks, and how to contribute.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
@@ -15,21 +15,24 @@ There is a parallel **[measurement-type registry](/registry/measurements/)** (§
 canonical `Measurement` `type` tokens and channel conventions — Pillar A's counterpart to
 this page, using the same open-vocabulary mechanism but a flatter, non-combinatorial model.
 
-## Hand-curated canonical + crosswalk
+## Curated canonical + crosswalk
 
 The model is deliberately two-layered:
 
-- **Canonical entries** (`data/exercises.json`) are **hand-curated** for quality and stable
+- **Canonical entries** (`data/exercises.json`) are **curated** for quality and stable
   identity — each a deliberate, reviewed movement with a stable id. This is the authority.
 - **Crosswalks** (`crosswalk/<source>.json`) map a third-party source's movement id →
   canonical id (or `null`). A crosswalk is both (1) a resolution table for refs that arrive
   named in an incumbent system and (2) the **curation worklist** — every `null` is a
   movement not yet curated.
 
-<Aside type="caution" title="Third-party data is crosswalked, never imported">
-Third-party datasets (e.g. free-exercise-db) are used **only as crosswalk sources** — never
-imported as canonical entries. Facets are always **hand-authored** against §6.3, regardless
-of `source`. That's how the registry's quality and id stability are *owned, not inherited*.
+<Aside type="note" title="Provenance: derived, not bulk-imported">
+No third-party dataset is bulk-imported verbatim. Most entries are a **curated
+derivation** from the public-domain free-exercise-db worklist: the movement's existence
+and usually its display name come from an upstream row, while the **id and facet
+classification are authored to §6.2/§6.3** with per-entry review. Each entry's `source`
+field records its provenance — see the registry's `SOURCES.md` for the precise
+semantics. That's how the registry's id stability is *owned, not inherited*.
 </Aside>
 
 ## Entry model (§6.3)
@@ -91,6 +94,8 @@ See the registry's `SOURCES.md` for the per-source evaluation.
 
 <Aside type="note" title="Status (per the registry repo)">
 The model, schema, validator, crosswalk, and CI are in place and green; canonical curation
-is ongoing (the free-exercise-db crosswalk is the worklist). The registry lives in its own
-repository, `openbody-registry`.
+is ongoing — **740+ curated canonical entries** so far, with the free-exercise-db
+crosswalk as the worklist. The registry lives in its own repository, `openbody-registry`
+(which also hosts the [measurement-type registry](/registry/measurements/) under
+`vocab/measurements/`).
 </Aside>
