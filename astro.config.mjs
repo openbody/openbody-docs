@@ -56,6 +56,7 @@ export default defineConfig({
             { label: "Strong", link: "/mapping/strong/" },
             { label: "Strava", link: "/mapping/strava/" },
             { label: "Apple Health / Health Connect", link: "/mapping/apple-health/" },
+            { label: "FIT", link: "/mapping/fit/" },
           ],
         },
         {

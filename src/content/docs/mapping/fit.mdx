@@ -1,0 +1,125 @@
+---
+title: Mapping — FIT
+description: Map a decoded FIT activity into Pillar A telemetry + a performed Session, and a decoded FIT structured workout into a planned Session of prescriptions.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+**Source:** a FIT file (Garmin/ANT+ Flexible and Interoperable Data Transfer — the format
+behind Garmin, Wahoo, Zwift, and TrainingPeaks exports). **Pillars:** A + B. **Mapper:**
+[`mapFit`](https://github.com/openbody/openbody-ts/blob/main/src/mappers/fit.ts) —
+`mapFit(decoded) → records[]`.
+
+<Aside type="note" title="Input is the decoded message shape, not the raw binary">
+FIT is a binary protocol (message definitions, base types, developer fields, compressed
+timestamps, a CRC) — unlike the CSV/XML/JSON sources the other mappers read directly, no
+mapper here hand-rolls a binary decoder, and no *correctly-licensed* decoder can be bundled
+as a runtime dependency of `openbody-ts` (Garmin's official `@garmin/fitsdk` license forbids
+redistribution/sublicensing). So exactly like `mapStrava` assumes the caller already has
+Strava's API JSON, `mapFit` assumes the caller already decoded the `.fit` binary with a
+decoder of their choice (e.g. the MIT-licensed [`fit-file-parser`](https://www.npmjs.com/package/fit-file-parser),
+`mode: "list"`) and hands over the resulting message lists. The mapping value-add — and the
+actual design work — is the FIT → OpenBody semantic translation, not decoding.
+</Aside>
+
+FIT files carry two structurally different things, and the mapper branches on which is
+present:
+
+## A. Recorded activity → telemetry + a performed Session
+
+`session` / `record` messages, structurally the same shape as the [Strava
+mapping](/mapping/strava/): per-sample streams become Pillar A `Measurement`s, and the
+activity becomes a Pillar B `Session` that **references** them via `measuredBy` (§1.3).
+
+| FIT | OpenBody |
+|---|---|
+| `records[].heart_rate` / `power` / `cadence` | single-channel `sampleArray` `Measurement` (`heart_rate` `/min`, `power` `W`, `cadence` `/min`) |
+| `records[].position_lat` / `position_long` / `altitude` | one **multi-channel** `location` `sampleArray` (channels `lat`/`lon`/`alt`) — semicircle→degree conversion is the decoder's job, not the mapper's |
+| `records[].timestamp` | the shared `offsets` array (seconds from the first record) |
+| `sessions[0].total_distance` / `total_elapsed_time` / `total_calories` | the `Session`'s `continuous` `WorkUnit.performance` |
+| `sessions[0].sport` | `disciplines` (known FIT sports map directly; unrecognized ones round-trip as `fit:<sport>`) |
+
+```json
+// Output (abridged) — a heart-rate stream + the Session that references it
+{ "id": "fit-hr", "recordType": "Measurement", "type": "heart_rate", "unit": "/min",
+  "sampleArray": { "offsets": [0, 60, 120, 180, 240], "dataPoints": [138, 149, 156, 160, 168] },
+  "startTime": "2026-07-02T06:30:00Z", "endTime": "2026-07-02T06:34:00Z",
+  "provenance": { "method": "sensor", "sourceApp": "fit" } }
+```
+```json
+{ "id": "fit-session", "recordType": "Session", "disciplines": ["running"], "intent": "train",
+  "startTime": "2026-07-02T06:30:00Z", "endTime": "2026-07-02T06:34:00Z",
+  "links": [{ "type": "measuredBy", "ref": "fit-hr" }, "…"],
+  "workUnits": [{ "id": "fit-session-wu", "recordType": "WorkUnit", "scoring": "continuous",
+    "performance": { "distance": { "absolute": { "value": 800, "unit": "m" } },
+                      "time": { "absolute": { "value": 240, "unit": "s" } },
+                      "energy": { "absolute": { "value": 62, "unit": "kcal" } } } }] }
+```
+
+## B. Structured workout → a planned Session of prescriptions
+
+`workout` / `workout_step` messages — a planned interval workout (the kind Zwift,
+TrainingPeaks, or Garmin Connect's workout builder export), not a recorded activity. This is
+new modeling territory: every other mapper here maps **performed** data; this is the first
+that maps FIT's **prescription** side onto `Program`/`Block`/`WorkUnit`/`Target` (§5).
+
+| FIT `workout_step` | OpenBody |
+|---|---|
+| `duration_type: time｜distance｜reps｜calories` + `duration_value` | `WorkUnit.scoring` + the matching `prescription` metric (`time`/`distance`/`reps`/`energy`) |
+| `duration_type: open` (no auto-bound; athlete advances manually) | `prescription.time = { stopCondition: { kind: "open" } }` |
+| `duration_type: repeat_until_steps_cmplt`, `duration_value` (loop-back index), `target_value` (count) | a `Block` with `repetitions: N` wrapping the referenced step range — a **repeat-control step**, not a real training step |
+| `target_type: power｜heart_rate｜speed｜cadence｜grade` + `target_value` | `prescription.intensity[]` — `dimension` per §5.13 (`hr`/`speed`/`power`/`grade`; `cadence` is an open-vocab extension of the same mechanism), `value: { absolute: {…} }` |
+| `custom_target_value_low`/`_high` on a **non-edge** step | `value: { range: { min, max } }` |
+| `custom_target_value_low`/`_high` on a `warmup`/`cooldown` step | `value: { ramp: { from, to } }` — directional, per SPEC.md's own Zwift `Warmup`/`Cooldown`/`Ramp` crosswalk precedent |
+| `intensity: warmup｜active` | `WorkUnit.setRole: warmup｜working` (registry-backed open vocab, §5.5); anything else (`rest`/`cooldown`/`recovery`/`interval`/`other`) round-trips source-namespaced (`fit:rest`, …), same pattern as the Apple Health mapper's unmapped-token fallback |
+| `wkt_step_name` | the wrapping `Block.name` — `WorkUnit` itself has no `name` field |
+
+```json
+// Input (excerpt) — a warmup, a 4x interval/rest repeat, a cooldown
+{ "workouts": [{ "wkt_name": "Sweet Spot Intervals", "sport": "cycling" }],
+  "workout_steps": [
+    { "message_index": { "value": 0 }, "wkt_step_name": "Warm Up", "duration_type": "time", "duration_value": 600,
+      "target_type": "power", "custom_target_value_low": 100, "custom_target_value_high": 150, "intensity": "warmup" },
+    { "message_index": { "value": 1 }, "wkt_step_name": "Interval", "duration_type": "time", "duration_value": 300,
+      "target_type": "power", "target_value": 200, "intensity": "active" },
+    { "message_index": { "value": 2 }, "wkt_step_name": "Recover", "duration_type": "time", "duration_value": 120,
+      "target_type": "open", "intensity": "rest" },
+    { "message_index": { "value": 3 }, "duration_type": "repeat_until_steps_cmplt", "duration_value": 1, "target_value": 4 },
+    { "message_index": { "value": 4 }, "wkt_step_name": "Cool Down", "duration_type": "time", "duration_value": 600,
+      "target_type": "power", "custom_target_value_low": 150, "custom_target_value_high": 80, "intensity": "cooldown" }
+  ] }
+```
+
+```json
+// Output (abridged) — Session.blocks: [warmup-Block, 4x-repeat-Block, cooldown-Block]
+{ "id": "fit-wkt", "recordType": "Session", "name": "Sweet Spot Intervals",
+  "disciplines": ["cycling"], "intent": "train",
+  "blocks": [
+    { "id": "fit-wkt-blk-0", "recordType": "Block", "name": "Warm Up",
+      "children": [{ "recordType": "WorkUnit", "setRole": "warmup", "scoring": "time",
+        "prescription": { "time": { "absolute": { "value": 600, "unit": "s" } },
+          "intensity": [{ "dimension": "power", "unit": "W", "value": { "ramp": { "from": 100, "to": 150 } } }] } }] },
+    { "id": "fit-wkt-blk-3", "recordType": "Block", "repetitions": 4,
+      "children": [
+        { "recordType": "Block", "name": "Interval", "children": ["…", "setRole: working, target 200 W"] },
+        { "recordType": "Block", "name": "Recover", "children": ["…", "no target — duration_type: open"] }
+      ] },
+    { "id": "fit-wkt-blk-4", "recordType": "Block", "name": "Cool Down", "children": ["…", "ramp 150→80 W"] }
+  ] }
+```
+
+<Aside type="tip" title="Every step is its own single-child Block">
+Rather than mixing bare `WorkUnit`s and repeat `Block`s at the `Session` level — invalid,
+since a `Session` carries **at most one** container kind (§5.3) — every step, repeated or
+not, is wrapped in its own `Block`. A repeat-control step's range of preceding step-`Block`s
+is then re-wrapped once more under a single `repetitions`-bearing `Block`. The result is a
+uniform `Session.blocks` array, always valid regardless of how many repeat groups a workout
+has.
+</Aside>
+
+<Aside type="caution" title="Exotic conditional-stop durations degrade, not fail">
+FIT's rarer `duration_type`s (`hr_less_than`, `power_greater_than`, …) fall back to a valid,
+generically-scored `continuous` `WorkUnit` with the raw FIT condition preserved losslessly
+under a namespaced `extension` (`{ "extension": { "fit": { "duration_type": "…" } } }`) —
+canonical-plus-residue, per the [mapping principles](/mapping/).
+</Aside>

@@ -38,13 +38,17 @@ built from the real mappers in [`openbody-ts/src/mappers`](https://github.com/op
   <LinkCard title="Strong" href="/mapping/strong/" description="Strong CSV → the same shape, with an app-specific extension namespace." />
   <LinkCard title="Strava" href="/mapping/strava/" description="Activity + streams → sampleArray Measurements + a Session linked by measuredBy. Both pillars." />
   <LinkCard title="Apple Health / Health Connect" href="/mapping/apple-health/" description="export.xml → quantity / category Measurements + HKWorkout → Session. Health Connect maps identically." />
+  <LinkCard title="FIT" href="/mapping/fit/" description="Recorded activity → telemetry + Session (like Strava); structured workout (workout/workout_step) → planned Session prescriptions with Targets." />
 </CardGrid>
 
 <Aside type="tip" title="What fit cleanly, and what to watch">
 Real-data dogfooding found **no model gaps** for strength (Hevy/Strong), telemetry
-(Strava), or Pillar A (Apple Health). Three things to keep in mind, surfaced by the
-mappers: every app has a workout **title** (now the v0.3 `name`); `derivedFrom` ⇒
-`provenance.algorithm` is *recommended* and incumbents rarely publish it; and a `Session`
-carries **at most one** container kind (§5.3), so a mix of supersets + standalone exercises
-maps to **all-blocks**.
+(Strava), Pillar A (Apple Health), or FIT's prescription side (`workout`/`workout_step`) —
+the first mapper here to map planned data rather than performed. Things to keep in mind,
+surfaced by the mappers: every app has a workout **title** (now the v0.3 `name`);
+`derivedFrom` ⇒ `provenance.algorithm` is *recommended* and incumbents rarely publish it; a
+`Session` carries **at most one** container kind (§5.3), so a mix of supersets + standalone
+exercises (Hevy/Strong) or a mix of repeated and one-off steps (FIT) maps to **all-blocks**;
+and `WorkUnit` has no `name` field, so a per-step label (FIT's `wkt_step_name`) lives on the
+wrapping `Block` instead.
 </Aside>
