@@ -7,7 +7,7 @@ import { Aside } from '@astrojs/starlight/components';
 
 **Source:** a Strava activity + its streams. **Pillars:** A + B. **Mapper:**
 [`mapStrava`](https://github.com/openbody/openbody-ts/blob/main/src/mappers/strava.ts) —
-`mapStrava({ activity, streams }) → records[]`. This is the cross-pillar shape end to end:
+`mapStrava({ activity, streams }) → { records, warnings }`. This is the cross-pillar shape end to end:
 telemetry becomes Pillar A `Measurement`s, and a Pillar B `Session` **references** them via
 `measuredBy` rather than embedding them (§1.3).
 
@@ -22,13 +22,14 @@ telemetry becomes Pillar A `Measurement`s, and a Pillar B `Session` **references
 | `sport_type` (`"Run"`, `"Ride"`, …) | a registry discipline token (`"running"`, `"cycling"`, …); unknown types round-trip namespaced as `strava:<type>` (§4.4 ladder) |
 | the activity itself | `Session` (+ a `continuous` `WorkUnit`) with `measuredBy` links to every telemetry `Measurement` |
 | `device_name` | `provenance.device` (`{ model }` — the display string names no manufacturer separately, so none is fabricated); `sourceApp: "strava"` |
+| `name` (activity title) | `Session.name`, when present |
 
 ## Input (excerpt)
 
 ```json
 {
   "activity": {
-    "id": 14582931007, "type": "Run", "sport_type": "Run",
+    "id": 14582931007, "name": "Morning Run", "type": "Run", "sport_type": "Run",
     "start_date": "2026-06-20T06:30:00Z", "elapsed_time": 2600,
     "moving_time": 2520, "distance": 10000.0,
     "average_heartrate": 152.0, "max_heartrate": 178,
@@ -106,6 +107,7 @@ The activity → a `Session` whose `continuous` `WorkUnit` references the teleme
   "id": "strava-14582931007",
   "recordType": "Session",
   "subject": "subj-001",
+  "name": "Morning Run",
   "disciplines": ["running"],
   "intent": "train",
   "startTime": "2026-06-20T06:30:00Z",
