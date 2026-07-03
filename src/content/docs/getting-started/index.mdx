@@ -1,14 +1,16 @@
 ---
 title: Getting started
-description: Install openbody-ts, validate a record against the JSON Schema, and canonically normalize it (§8.3).
+description: Install openbody-ts, validate a record against the JSON Schema, and canonically normalize it.
 ---
 
 import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 
 This walks through the **TypeScript reference implementation**, `openbody-ts`: validate an
-OpenBody record against the published JSON Schema, then run it through the §8.3
-canonical-normalization pipeline. A reference implementation is *one* implementation, not
-normative — [`SPEC.md`](/specification/spec/) is the source of truth.
+OpenBody record against the published JSON Schema, then run it through the
+canonical-normalization pipeline (`conformance/EQUIVALENCE.md` — which the reference
+implementation implements as the conformance suite's equivalence oracle). A reference
+implementation is *one* implementation, not normative —
+[`SPEC.md`](/specification/spec/) is the source of truth.
 
 <Aside type="note" title="Pre-release tooling — not yet on npm">
 The package is `@openbody/openbody-ts` (early, v0.1.0, tracking the current OpenBody
@@ -44,8 +46,8 @@ once the repository is public). Install steps will firm up at the public draft r
 ## Validate a record
 
 `validate(record)` checks a record against the OpenBody JSON Schema (Draft 2020-12,
-SPEC §§4–7). Validate **wire** records — not the §8.3 canonical form, which is a
-*comparison* artifact, not the binding.
+SPEC §§4–7). Validate **wire** records — not the canonical form the equivalence method
+produces, which is a *comparison* artifact, not the binding.
 
 ```ts
 import { validate } from "@openbody/openbody-ts";
@@ -74,7 +76,8 @@ conditionality (§5.12); `algorithm` required when `method` is `algorithm` (§7.
 
 ## Normalize & compare
 
-`normalizeDocument(doc)` runs the [§8.3 canonical-normalization pipeline](/concepts/canonicalization/)
+`normalizeDocument(doc)` runs the [canonical-normalization pipeline](/concepts/canonicalization/)
+(`conformance/EQUIVALENCE.md`)
 — number → lowest-terms fixed-point, unit canonicalization, scalar→`Target` expansion,
 `ExerciseRef` fold, `sets` expansion, deterministic id assignment, flatten + `partOf`,
 `status` default, then RFC 8785 serialization — producing a sorted set of canonical record
@@ -88,7 +91,7 @@ console.log(equivalent(nestedDoc, flatDoc)); // → true
 ```
 
 <Aside type="tip" title="Lossless numbers">
-For full §8.3 fidelity, feed documents through `parseLossless` (or raw JSON text) rather
+For full canonicalization fidelity (`EQUIVALENCE.md` step 1), feed documents through `parseLossless` (or raw JSON text) rather
 than `JSON.parse`: numbers are parsed losslessly from their decimal text, never via
 `float64`, so high-precision decimals and integers above 2⁵³ canonicalize to their exact
 value. `npm run lossless` proves it.

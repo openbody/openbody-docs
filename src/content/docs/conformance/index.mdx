@@ -6,9 +6,12 @@ description: OpenBody conformance profiles, the test vectors, and how to claim "
 import { Aside, LinkCard } from '@astrojs/starlight/components';
 
 Conformance is **testable**: an implementation demonstrates it by **round-tripping** the
-published test vectors for the profile and tier it claims, comparing against the
-[§8.3 canonical form](/concepts/canonicalization/). The per-element tier assignments in
-SPEC §§4–7 are normative for *what* is tested.
+published test vectors for the profile and tier it claims — it is judged by its **inputs
+and outputs against the vectors**. Equivalence between documents is decided by the suite's
+[normalized-equivalence method](/concepts/canonicalization/) (`conformance/EQUIVALENCE.md`),
+implemented by the test tooling and the reference implementation, which act as the
+**equivalence oracle** — a conformant implementation is not required to implement it. The
+per-element tier assignments in SPEC §§4–7 are normative for *what* is tested.
 
 ## Two core profiles — one per pillar
 

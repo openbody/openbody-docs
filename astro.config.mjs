@@ -48,7 +48,7 @@ export default defineConfig({
             { label: "The data model", link: "/concepts/data-model/" },
             { label: "The two pillars", link: "/concepts/pillars/" },
             { label: "Exercise identity (§6)", link: "/concepts/exercise-identity/" },
-            { label: "Canonicalization & equivalence (§8.3)", link: "/concepts/canonicalization/" },
+            { label: "Canonicalization & equivalence", link: "/concepts/canonicalization/" },
           ],
         },
         {

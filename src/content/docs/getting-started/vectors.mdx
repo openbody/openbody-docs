@@ -6,8 +6,11 @@ description: Demonstrate conformance by round-tripping the published OpenBody te
 import { Aside, Steps } from '@astrojs/starlight/components';
 
 Conformance is **testable**: an implementation demonstrates it by **round-tripping** the
-published test vectors for the profile and tier it claims, comparing against the normalized
-canonical form (SPEC §8.3). The reference implementation ships a vector runner.
+published test vectors for the profile and tier it claims — judged on inputs and outputs,
+with equivalence decided by the suite's
+[normalized-equivalence method](/concepts/canonicalization/) (`conformance/EQUIVALENCE.md`),
+which the reference implementation implements as the equivalence oracle. The reference
+implementation ships a vector runner.
 
 <Steps>
 
@@ -27,7 +30,7 @@ canonical form (SPEC §8.3). The reference implementation ships a vector runner.
    npm run mappers    # Hevy / Strong / Strava / Apple Health → OpenBody, round-tripped
    ```
 
-3. Prove the lossless-number guarantee (§8.3 step 1):
+3. Prove the lossless-number guarantee (`EQUIVALENCE.md` step 1):
 
    ```bash
    npm run lossless
@@ -50,8 +53,8 @@ The **minimum core vectors** (the conformance bar, SPEC §8.3) cover:
 - a `sampleArray` in regular (`frequencyHz`) and irregular (`offsets`), scalar and
   multi-channel, including a `null` dropped sample;
 - a **normalization-determinism** vector: a multi-`WorkUnit` `Exercise` with a `sets: N`
-  shorthand **and** an id-less inlined child, with its exact post-§8.3 ids and `partOf`
-  links asserted, plus a number-canonicalization case.
+  shorthand **and** an id-less inlined child, with its exact post-normalization ids and
+  `partOf` links asserted (per `EQUIVALENCE.md`), plus a number-canonicalization case.
 
 The vector files live in [`conformance/vectors/`](https://github.com/openbody/openbody/tree/main/conformance/vectors)
 with an `index.json` manifest; the [Conformance section](/conformance/) explains profiles

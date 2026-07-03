@@ -1,25 +1,32 @@
 ---
-title: Canonicalization & equivalence (§8.3)
+title: Canonicalization & equivalence
 description: What "lossless round-trip" means in OpenBody — the deterministic canonical-form procedure that lets independent implementations interoperate.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
 Two independent implementations only interoperate if they agree on **when two records mean
-the same thing**. OpenBody defines this precisely (§8.3): reduce each record to a
-**canonical byte string** via an ordered, deterministic algorithm, then compare those
-strings. Two records are equivalent **iff** their canonical byte strings are identical —
-regardless of JSON key order, whitespace, number spelling, or the permitted shorthands.
+the same thing**. OpenBody defines this precisely: equivalence is **semantic, not
+byte-level** — two documents are equivalent iff they denote the same set of records under
+the model's defined shorthand equivalences (SPEC §8.3),
+regardless of JSON key order, whitespace, number spelling, or the permitted shorthands. The
+conformance suite judges this **mechanically**: reduce each record to a **canonical byte
+string** via an ordered, deterministic algorithm, then compare those strings.
 
-This page explains the procedure plainly. The normative version is
-SPEC §8.3; it is grounded on **RFC 8785 (JSON
-Canonicalization Scheme)**.
+This page explains that algorithm plainly. The normative version is the companion document
+[`conformance/EQUIVALENCE.md`](https://github.com/openbody/openbody/blob/main/conformance/EQUIVALENCE.md),
+grounded on **RFC 8785 (JSON Canonicalization Scheme)**. It is normative **for the
+conformance suite** — test tooling and the reference implementation implement it, acting as
+the **equivalence oracle**. **A conformant implementation is not required to implement it**:
+per SPEC §8.3, an implementation is judged by its **inputs and outputs against the published
+vectors**. You *may* implement it (e.g. to self-test); the oracle must follow it exactly.
 
 ## Round-trip = parse → canonicalize → serialize
 
-A "lossless round-trip" is: parse the record, reduce it to canonical form, serialize. An
-implementation demonstrates conformance by round-tripping the test vectors and comparing
-against this canonical form.
+A "lossless round-trip" is: parse the record, process it with **no change of meaning**,
+serialize. An implementation demonstrates conformance by round-tripping the test vectors;
+the suite checks each result by canonicalizing both sides with this algorithm and comparing
+the bytes.
 
 ## The ordered algorithm
 
@@ -33,7 +40,11 @@ against this canonical form.
    trailing-zero fractional seconds removed).
 2. **Canonicalize units.** A metric `unit` equal to the field's default is removed (so
    `time: 120` and `time: {absolute:{value:120, unit:"s"}}` converge). A `unit` inside
-   `load.value` is moved to its canonical home, `Load.unit`.
+   `load.value` is moved to its canonical home, `Load.unit`; likewise a `unit` inside
+   `Intensity.value` moves to `Intensity.unit`. This applies to whichever `Target` variant
+   is present, including `ramp` — but a `ramp`'s `from`/`to` are **never** canonicalized by
+   value: they are preserved exactly as authored, with no reordering (order is meaning —
+   a cooldown ramps *down*).
 3. **Expand scalar metrics.** A bare scalar `n` becomes `{ "absolute": { "value": n } }` for
    every metric field and for `load.value`.
 4. **Expand & fold `ExerciseRef`.** A bare-string ref becomes `{ "id": … }`; an explicit
@@ -50,10 +61,11 @@ against this canonical form.
    `partOf` link to its parent; containment arrays are removed. `subject` and the nearest
    ancestor's `startTime`/`endTime` propagate down (an explicit value on the child wins).
 8. **Default `status`.** Absent `status` → `active`.
-9. **Serialize canonically.** Order the three **set-valued arrays** — `links`,
-   `effortLoad`, `modifiers` — by their keys (ties broken by canonical bytes); **all other
-   arrays keep their semantic order**. Then serialize per RFC 8785: lexicographic key sort,
-   canonical escaping, no insignificant whitespace.
+9. **Serialize canonically.** Order the six **set-valued arrays** — `links` by
+   `(type, ref)`, `effortLoad` by `(kind, method)`, `intensity` by `(dimension)`,
+   `modifiers` by `(type)`, `media` by `(url)`, and `qualities` by token value — with ties
+   broken by canonical bytes; **all other arrays keep their semantic order**. Then serialize
+   per RFC 8785: lexicographic key sort, canonical escaping, no insignificant whitespace.
 
 The set of canonical record byte strings (one per flattened record) is compared as an
 **unordered set**.
@@ -62,8 +74,8 @@ The set of canonical record byte strings (one per flattened record) is compared 
 Steps 1–9 descend into **all** JSON structure, **including** namespaced `extension` objects
 and the opaque `script` — every value is canonicalized identically. There is no
 "verbatim / received-bytes" exception. This is distinct from the §8.1 passthrough rule:
-§8.1 guarantees unknown content is never *dropped*; §8.3 defines how it is *compared*. The
-two are consistent — canonicalization reorders and re-spells, never discards.
+§8.1 guarantees unknown content is never *dropped*; the equivalence method defines how it is
+*compared*. The two are consistent — canonicalization reorders and re-spells, never discards.
 </Aside>
 
 ## Nested ≡ flat + `partOf`
