@@ -101,7 +101,8 @@ value. `npm run lossless` proves it.
 
 - [Run the conformance vectors](/getting-started/vectors/) against the reference implementation.
 - [Concepts](/concepts/data-model/) — the data model, the two pillars, exercise identity, canonicalization.
-- [Mapping guides](/mapping/) — turn a real Hevy / Strong / Strava / Apple Health export
-  into OpenBody records. The mappers also resolve source exercise names to canonical
-  [registry](/registry/exercises/) ids where the registry covers them, falling back to a
-  lossless `opaque` string otherwise.
+- [Mapping guides](/mapping/) — turn a real export into OpenBody records: a dozen formats
+  and counting, from Hevy and Strava to Fitbit Takeout and theCrag — see the
+  [supported-formats matrix](/mapping/). The mappers also resolve source exercise names to
+  canonical [registry](/registry/exercises/) ids where the registry covers them, falling
+  back to a lossless `opaque` string otherwise.
