@@ -1,0 +1,114 @@
+---
+title: Mapping — Concept2
+description: Map a Concept2 Logbook season CSV — RowErg, SkiErg, BikeErg — into distance/time-scored pieces, interval Blocks with rest, and linked HR aggregates.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+**Source:** a Concept2 Logbook ([log.concept2.com](https://log.concept2.com)) **season CSV**
+export — one row per workout, covering RowErg, SkiErg, and BikeErg. **Pillars:** A + B.
+**Mapper:**
+[`mapConcept2`](https://github.com/openbody/openbody-ts/blob/main/src/mappers/concept2.ts) —
+`mapConcept2(csv) → records[]`, one `Session` per row plus an avg-HR `Measurement` per
+workout.
+
+## Structural correspondence
+
+| Concept2 CSV | OpenBody |
+|---|---|
+| `Log ID` | `clientRecordId`; `Description` → `Session.name`; `Comments` → `notes` |
+| `Type` (`RowErg`/`SkiErg`/`BikeErg`) | `disciplines` (`rowing` / `concept2:skierg` / `cycling`) and `exerciseRef` (`row.erg` / `ski.erg` / opaque-only — see notes) |
+| a fixed piece (`"2000m row"`, `"30:00 ski"`) | a `distance`- or `time`-scored `WorkUnit`; the piece's *other* metric rides in `extension.concept2` (§5.5 — a non-`continuous` unit can't carry a metric that contradicts its scoring) |
+| a fixed-interval workout (`"8x500m/0:30r row"`) | a `Block` of per-interval `WorkUnit`s, each with `performance.rest` — the structure is recovered from the PM5-generated `Description` |
+| a "just row" (arbitrary end) | a `continuous` `WorkUnit` carrying time + distance + energy together |
+| `Stroke Rate/Cadence` / `Avg Watts` | `performance.intensity` (`{ dimension: "cadence" }` / `{ dimension: "power" }`) on single-piece workouts (§5.13) |
+| `Avg Heart Rate` | a Pillar A `heart_rate_mean` `Measurement` spanning the workout, linked via `measuredBy` (§7.2) |
+| pace, stroke count, drag factor, cal/hr, … | `extension.concept2` (canonical-plus-residue) |
+
+## Input (excerpt of `examples/concept2/concept2-season-sample.csv`)
+
+```csv
+"Log ID",Date,Description,"Work Time (Formatted)","Work Time (Seconds)",...,"Work Distance",...,"Stroke Rate/Cadence",...,"Avg Watts",...,"Avg Heart Rate","Drag Factor",...,Type,...,Comments,...
+90000001,"2026-03-02 06:45:00","2000m row",7:45.3,465.3,,,2000,,28,217,1:56.3,221,1063,137,172,118,40,Hwt,RowErg,Yes,"2k test — season best attempt",...
+90000002,"2026-03-04 07:10:00","8x500m/0:30r row",15:20.0,920.0,4:00.0,240,4000,184,30,460,1:55.0,228,1085,185,158,116,40,Hwt,RowErg,No,,...
+```
+
+## Output (the 2k test — a fixed-distance piece)
+
+```json
+{
+  "id": "c2-90000001",
+  "recordType": "Session",
+  "subject": "subj-001",
+  "clientRecordId": "90000001",
+  "name": "2000m row",
+  "notes": "2k test — season best attempt",
+  "disciplines": ["rowing"],
+  "intent": "train",
+  "startTime": "2026-03-02T06:45:00Z",
+  "endTime": "2026-03-02T06:52:45Z",
+  "provenance": { "method": "sensor", "sourceApp": "concept2", "device": { "manufacturer": "concept2", "model": "RowErg" } },
+  "workUnits": [
+    {
+      "id": "c2-90000001-wu",
+      "recordType": "WorkUnit",
+      "exerciseRef": { "id": "row.erg", "opaque": "RowErg" },
+      "scoring": "distance",
+      "performance": {
+        "distance": { "absolute": { "value": 2000, "unit": "m" } },
+        "intensity": [
+          { "dimension": "cadence", "unit": "/min", "value": { "absolute": { "value": 28 } } },
+          { "dimension": "power", "unit": "W", "value": { "absolute": { "value": 221 } } }
+        ]
+      }
+    }
+  ],
+  "links": [{ "type": "measuredBy", "ref": "c2-90000001-hr" }],
+  "extension": { "concept2": { "pace": "1:56.3", "strokeCount": 217, "calHour": 1063, "dragFactor": 118, "workTimeSeconds": 465.3, "totalCal": 137 } }
+}
+```
+
+The interval row (`"8x500m/0:30r row"`) expands to a `Block` of eight `WorkUnit`s:
+
+```json
+{
+  "id": "c2-90000002-blk",
+  "recordType": "Block",
+  "name": "8x500m/0:30r row",
+  "children": [
+    {
+      "id": "c2-90000002-int1",
+      "recordType": "WorkUnit",
+      "exerciseRef": { "id": "row.erg", "opaque": "RowErg" },
+      "scoring": "distance",
+      "performance": {
+        "distance": { "absolute": { "value": 500, "unit": "m" } },
+        "rest": { "absolute": { "value": 30, "unit": "s" } }
+      }
+    }
+  ]
+}
+```
+
+<Aside type="note" title="Piece scoring is inferred, honestly">
+`"2000m row"` whose Work Distance is exactly 2000 ⇒ a fixed-distance piece (`scoring:
+"distance"`); `"30:00 ski"` whose Work Time is exactly 1800.0 ⇒ fixed-time; anything else
+ends at an arbitrary point ⇒ `continuous`, which per §5.5 MAY carry time + distance +
+energy together. The season CSV is **one row per workout** with no per-interval detail rows
+— fixed-interval structure is recoverable because the PM5 generates the `Description`
+deterministically; variable-interval workouts (`"v2000m/3:00r...3"`) only disclose the first
+interval, so they degrade to a single `continuous` `WorkUnit` with the rest totals preserved
+as residue.
+</Aside>
+
+## Notes
+
+- **Machine identity:** RowErg ⇒ registry `row.erg`, SkiErg ⇒ `ski.erg` (both verified in
+  the registry); **BikeErg has no canonical registry id** (the registry's `air-bike` is a fan
+  bike) so it stays opaque-only. The raw `Type` string always rides in `exerciseRef.opaque`.
+- **SkiErg's discipline is `concept2:skierg`** — there is no canonical skierg discipline
+  token, and `skiing` would misstate an indoor erg (§5.9 namespaced fallback).
+- For interval workouts the CSV's stroke rate/watts are **whole-workout averages** —
+  asserting them on any single interval would fabricate per-interval data, so they land in
+  `extension.concept2` instead.
+- Timestamps are wall-clock with no offset — pass `utcOffset` to stamp them (default `"Z"`).

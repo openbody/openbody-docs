@@ -1,0 +1,94 @@
+---
+title: Mapping — OpenBody → Strong (outbound)
+description: Write OpenBody records back out as a Strong-importable CSV, with a machine-readable omissions report for everything the target format can't hold.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+**Direction:** outbound — OpenBody → incumbent. **Target:** Strong's CSV shape (which is
+also the CSV-**import** path into Hevy: Hevy accepts Strong-format files). **Mapper:**
+[`mapOpenBodyToStrong`](https://github.com/openbody/openbody-ts/blob/main/src/mappers/to-strong.ts)
+— `mapOpenBodyToStrong(records, opts) → { csv, omissions }`, the mirror of
+[`mapStrong`](/mapping/strong/): the output round-trips through `mapStrong` back to
+equivalent records.
+
+<Aside type="note" title="The degradation contract (§10)">
+Emitting OpenBody's full expressiveness into a less-expressive target is necessarily
+**best-effort and bounded by that target** — a limit of Strong's CSV, not a defect of
+OpenBody. By default nothing throws: the mapper emits everything Strong *can* hold and
+returns a machine-readable `omissions` report (`{ recordId, field?, reason }`) covering
+every **material** loss, so a UI can say "N things Strong can't represent were left out".
+Pass `{ strict: true }` to throw on the first loss instead.
+</Aside>
+
+## What Strong's CSV can hold (and this mapper writes)
+
+| OpenBody | Strong CSV |
+|---|---|
+| reps ± an absolute load | `Reps` + `Weight` (kg; non-kg UCUM mass units converted with **exact decimal arithmetic** — no float rounding) |
+| bodyweight / reps-only sets | `Reps` with `Weight` 0 |
+| duration-scored sets | `Seconds` (UCUM `s`/`min`/`h`/`ms` converted) |
+| distance-scored sets | `Distance` in metres (`km`, `[mi_i]`, `[yd_i]`, … converted exactly) |
+| a single-valued RPE `effortLoad` | the `RPE` column |
+| per-set notes; workout name / date / duration | `Notes`, `Workout Name`, `Date`, `Duration` |
+| `Session.extension["io.strong.export"].workoutNo` | `Workout No` (round-tripped) |
+| `Session.workUnits` (the collapsed hierarchy [telemetry mappers](/mapping/) produce) | emitted when the unit names its own `exerciseRef`; reported as an omission otherwise (the CSV keys every row on an Exercise Name) |
+
+Exercise names prefer the lossless original source string (`opaque` — so Hevy → OpenBody →
+Strong keeps the app's own names byte-for-byte), then Strong's own crosswalk alias for a
+resolved canonical id, then the raw id.
+
+## Output (round-tripping the Strong fixture — zero omissions)
+
+```csv
+Date,Workout Name,Duration,Exercise Name,Set Order,Weight,Reps,Distance,Seconds,Notes,Workout No,RPE
+2025-12-20 18:00:00,Push Day,3600,Bench Press (Barbell),1,80,5,0,0,,1,
+2025-12-20 18:00:00,Push Day,3600,Bench Press (Barbell),2,80,5,0,0,,1,
+2025-12-20 18:00:00,Push Day,3600,Overhead Press (Barbell),1,45,8,0,0,,1,
+2025-12-20 18:00:00,Push Day,3600,Plank,1,0,0,0,60,core hold,1,
+```
+
+## The degraded case: a %1RM load
+
+Inject `load: { value: { relativeToThreshold: { percent: 80, of: "1RM" } } }` into the first
+set and the CSV still comes out — the set survives (reps intact, `Weight` left at 0) and the
+loss is reported:
+
+```json
+[
+  {
+    "recordId": "strong-w-87ab88ae-ex0-set0",
+    "field": "load",
+    "reason": "load is 80% of 1RM (this mapper does not resolve ThresholdProfiles to an absolute value) — Strong's Weight column needs an absolute kg value; left at 0"
+  }
+]
+```
+
+## What gets reported as an omission
+
+- **Non-Session top-level records** (Measurements, Programs, … — no CSV home).
+- **WorkUnits with no `exerciseRef`** — nothing to write in the Exercise Name column.
+- **Block structure**: `grouping` (supersets), `roundScheme`, `repetitions`, block-level
+  scoring schemes (AMRAP/EMOM) — children are flattened to consecutive plain sets.
+- **`energy`/`continuous`-scored WorkUnits** — emitted as plain sets where they carry
+  time/distance/reps; dropped (and reported) when they carry nothing Strong can hold.
+- **Metric values Strong's columns can't take**: `range`, `relativeToThreshold` (%1RM),
+  `ramp`, `stopCondition`, `energy` values, loads in units with no exact kg conversion
+  (bands, machine levels).
+- **`effortLoad` entries other than a single-valued RPE.**
+
+## What is silently dropped
+
+Documented once here, not per row — Strong's CSV simply has **no concept** of them, and
+reporting each would drown the real losses: `setRole`, `rxStatus`, `prescription` (the CSV
+is a performed log), `repDetail`, `sides`, `phasePattern`, `modifiers`, `intensity`, `rest`,
+`outcome`, `terminatedBy`, per-WorkUnit timestamps, envelope metadata (links / media /
+provenance), and non-Strong extensions.
+
+## Notes
+
+- **Round-trip tested**: Strong CSV → OpenBody → Strong CSV → OpenBody is asserted
+  **equivalent** under the §8.3 rule, including the duration-scored Plank row (`Seconds`
+  carries the hold).
+- This is the export path behind the browser tool's **"Download as Strong CSV"** button at
+  [/tools/convert/](/tools/convert/), omissions summary included.

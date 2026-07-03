@@ -1,0 +1,131 @@
+---
+title: Mapping — Fitbit
+description: Map a Fitbit Google Takeout folder — exercise logs, intraday steps and heart rate, sleep stages, weight — into OpenBody Measurements and Sessions.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+**Source:** a Fitbit **Google Takeout** export — a *folder* of JSON files
+(`Takeout/Fitbit/Global Export Data/` in current exports), not a single file. **Pillars:**
+A + B. **Mapper:**
+[`mapFitbitTakeout`](https://github.com/openbody/openbody-ts/blob/main/src/mappers/fitbit.ts)
+— `mapFitbitTakeout(files, opts) → records[]`, where `files` is a list of
+`{ name, text }` pairs (any subset); files are classified by **basename**, never by
+directory. Unknown, empty, or corrupt files are ignored gracefully.
+
+## Structural correspondence
+
+| Takeout file | OpenBody |
+|---|---|
+| `exercise-<N>.json` (activity logs) | `Session` + a `continuous` `WorkUnit` (time/distance/energy); `logId` → `clientRecordId`; per-workout `averageHeartRate` and `steps` → linked aggregate `Measurement`s; `heartRateZones`/`activityLevel`/`elevationGain` → `extension.fitbit` |
+| `activityName` | `disciplines` (`Run` → `running`, `Weights` → `strength`, …); unknown names round-trip as `fitbit:<name>` |
+| `steps-<date>.json` (per-minute buckets) | one `step_count` `sampleArray` per day |
+| `heart_rate-<date>.json` (intraday samples) | one `heart_rate` `sampleArray` per day |
+| `sleep-<date>.json` (`levels.data` + `shortData`) | `sleep_stage` `category` `Measurement`s over **adjacent intervals** (§4.3), plus per-log `sleep_duration` and per-stage summary totals |
+| `weight-<date>.json` | `body_mass` in `[lb_av]` (Takeout exports pounds — kept exact, no float conversion), plus `bmi` and `body_fat_percentage`; `source` device → `provenance.device` |
+| `resting_heart_rate-<date>.json` | one `resting_heart_rate` `quantity` per day |
+
+## Input (excerpt of `examples/fitbit/exercise-0.json`)
+
+```json
+[
+  {
+    "logId": 21092332392,
+    "activityName": "Run",
+    "averageHeartRate": 149,
+    "calories": 306,
+    "distance": 5.28,
+    "distanceUnit": "Kilometer",
+    "duration": 1843000,
+    "startTime": "01/06/24 07:08:57",
+    "steps": 4510,
+    "heartRateZones": [ { "name": "Cardio", "min": 140, "max": 170, "minutes": 24 } ]
+  }
+]
+```
+
+## Output (selected records)
+
+An exercise log → a `Session`; the workout-level HR average and step count become linked
+`Measurement`s rather than inline fields:
+
+```json
+{
+  "id": "fitbit-ex-21092332392",
+  "recordType": "Session",
+  "subject": "subj-001",
+  "clientRecordId": "21092332392",
+  "disciplines": ["running"],
+  "intent": "train",
+  "startTime": "2024-01-06T07:08:57-08:00",
+  "endTime": "2024-01-06T07:39:40-08:00",
+  "provenance": { "method": "sensor", "sourceApp": "fitbit" },
+  "extension": { "fitbit": { "heartRateZones": ["…"], "activityLevel": ["…"], "elevationGain": 67.056 } },
+  "workUnits": [
+    {
+      "id": "fitbit-ex-21092332392-wu",
+      "recordType": "WorkUnit",
+      "scoring": "continuous",
+      "performance": {
+        "time": { "absolute": { "value": 1843, "unit": "s" } },
+        "distance": { "absolute": { "value": 5.28, "unit": "km" } },
+        "energy": { "absolute": { "value": 306, "unit": "kcal" } }
+      },
+      "links": [
+        { "type": "measuredBy", "ref": "fitbit-ex-21092332392-hr-mean" },
+        { "type": "measuredBy", "ref": "fitbit-ex-21092332392-steps" }
+      ]
+    }
+  ]
+}
+```
+
+A weight log → an exact fixed-point `body_mass` in the source's own unit:
+
+```json
+{
+  "id": "fitbit-weight-1704526260000",
+  "recordType": "Measurement",
+  "subject": "subj-001",
+  "clientRecordId": "1704526260000",
+  "type": "body_mass",
+  "quantity": { "coefficient": 1755, "exponent": -1 },
+  "unit": "[lb_av]",
+  "startTime": "2024-01-06T07:31:00-08:00",
+  "endTime": "2024-01-06T07:31:00-08:00",
+  "provenance": { "method": "sensor", "sourceApp": "fitbit", "device": { "manufacturer": "fitbit", "model": "Aria" } }
+}
+```
+
+A sleep stage → a `category` `Measurement`; the 30-second `shortData` wake episodes are
+**spliced into** the surrounding stage segment, so the intervals stay adjacent:
+
+```json
+{
+  "id": "fitbit-sleep-44940631937-s4",
+  "recordType": "Measurement",
+  "subject": "subj-001",
+  "type": "sleep_stage",
+  "category": "deep",
+  "startTime": "2024-01-06T00:42:00-08:00",
+  "endTime": "2024-01-06T01:10:00-08:00",
+  "provenance": { "method": "sensor", "sourceApp": "fitbit" }
+}
+```
+
+<Aside type="caution" title="Takeout timestamps carry no offset">
+`heart_rate-*.json` is documented as **UTC** and is mapped with `Z`; everything else is
+local wall-clock time — pass `opts.utcOffset` (e.g. `"-08:00"`) to stamp those honestly,
+else they too default to `Z`. The examples above were generated with
+`{ utcOffset: "-08:00" }`.
+</Aside>
+
+## Notes
+
+- **175.5 lb stays 175.5 lb.** Takeout exports pounds; the mapper keeps the exact decimal
+  as a fixed-point `quantity` in `[lb_av]` rather than converting to kg with float rounding
+  — units convert losslessly downstream, on demand.
+- **Known deliberate loss:** the per-sample HR `confidence` (0–3 quality flag) is dropped
+  from the `heart_rate` `sampleArray`.
+- Built against the *publicly documented* Takeout structure (importer sources, Fitbit Web
+  API docs) and cross-checked fixtures — verify against your own real Takeout.

@@ -60,6 +60,12 @@ export default defineConfig({
             { label: "Strava", link: "/mapping/strava/" },
             { label: "Apple Health / Health Connect", link: "/mapping/apple-health/" },
             { label: "FIT", link: "/mapping/fit/" },
+            { label: "GPX", link: "/mapping/gpx/" },
+            { label: "TCX", link: "/mapping/tcx/" },
+            { label: "Fitbit", link: "/mapping/fitbit/" },
+            { label: "Concept2", link: "/mapping/concept2/" },
+            { label: "theCrag", link: "/mapping/thecrag/" },
+            { label: "OpenBody → Strong (outbound)", link: "/mapping/to-strong/" },
           ],
         },
         {

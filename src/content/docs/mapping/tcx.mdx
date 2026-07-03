@@ -1,0 +1,141 @@
+---
+title: Mapping — TCX
+description: Map a TCX activity (Garmin Connect, Polar legacy, MapMyRun) into trackpoint streams, Lap → WorkUnit structure, and a Session.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+**Source:** a TCX file (Garmin Training Center XML, `TrainingCenterDatabase/v2` — Garmin
+Connect, Polar legacy exports, MapMyRun, and any other TCX v2 exporter). **Pillars:** A + B.
+**Mapper:** [`mapTcx`](https://github.com/openbody/openbody-ts/blob/main/src/mappers/tcx.ts)
+— `mapTcx(xml) → records[]`, one `Session` per `<Activity>`. Where [GPX](/mapping/gpx/) is
+pure telemetry, TCX also carries **structure**: laps.
+
+## Structural correspondence
+
+| TCX | OpenBody |
+|---|---|
+| `<Activity Sport="…">` | `Session` (`Running` → `running`, `Biking` → `cycling`; TCX's only other value, `Other`, round-trips as `tcx:other`) |
+| `<Activity><Id>` | `clientRecordId` (§7.1 — the activity's key in every TCX producer) |
+| `<Lap>` | a `continuous` `WorkUnit` in `Session.workUnits` — time (`TotalTimeSeconds`), distance (`DistanceMeters`), energy (`Calories`), own `startTime` from the `StartTime` attribute |
+| `<Lap><Intensity>Resting</Intensity>` | `setRole: "tcx:resting"` (namespaced — the core setRole vocab has no rest token); `Active` is the TCX default and is not emitted |
+| `AverageHeartRateBpm` / `MaximumHeartRateBpm` per lap | interval `quantity` aggregates (`heart_rate_mean`/`_max`) with `derivedFrom` → the HR stream **when one exists** |
+| Trackpoint `Position`/`AltitudeMeters` | one **multi-channel** `location` `sampleArray` (`lat`/`lon`/`alt`); a GPS dropout becomes a `[null, null, alt]` row |
+| Trackpoint `HeartRateBpm` / `Cadence` / TPX `<Watts>` | single-channel `sampleArray` `Measurement`s (`heart_rate`, `cadence`, `power`) |
+| `<Creator><Name>` | `provenance.device.model` (no manufacturer is stated separately, so none is fabricated) |
+
+## Input (excerpt of `examples/tcx/tcx-sample.tcx`)
+
+```xml
+<Activity Sport="Running">
+  <Id>2010-06-26T10:06:11Z</Id>
+  <Lap StartTime="2010-06-26T10:06:11Z">
+    <TotalTimeSeconds>15.0</TotalTimeSeconds>
+    <DistanceMeters>50.0</DistanceMeters>
+    <Calories>4</Calories>
+    <AverageHeartRateBpm><Value>133</Value></AverageHeartRateBpm>
+    <MaximumHeartRateBpm><Value>138</Value></MaximumHeartRateBpm>
+    <Intensity>Active</Intensity>
+    <Track>
+      <Trackpoint>
+        <Time>2010-06-26T10:06:11Z</Time>
+        <Position>
+          <LatitudeDegrees>52.148746</LatitudeDegrees>
+          <LongitudeDegrees>4.494590</LongitudeDegrees>
+        </Position>
+        <AltitudeMeters>3.4</AltitudeMeters>
+        <HeartRateBpm><Value>128</Value></HeartRateBpm>
+        <Cadence>83</Cadence>
+        <Extensions><ns3:TPX><ns3:Watts>245</ns3:Watts></ns3:TPX></Extensions>
+      </Trackpoint>
+      <!-- … -->
+    </Track>
+  </Lap>
+  <!-- second Lap, Intensity Resting … -->
+  <Creator xsi:type="Device_t"><Name>Garmin Forerunner 305</Name></Creator>
+</Activity>
+```
+
+## Output (selected records)
+
+A lap's average HR → an aggregate with lineage to the stream:
+
+```json
+{
+  "id": "tcx-1-lap-1-hr-mean",
+  "recordType": "Measurement",
+  "subject": "subj-001",
+  "type": "heart_rate_mean",
+  "quantity": 133,
+  "unit": "/min",
+  "startTime": "2010-06-26T10:06:11Z",
+  "endTime": "2010-06-26T10:06:26Z",
+  "provenance": { "method": "algorithm", "sourceApp": "tcx", "device": { "model": "Garmin Forerunner 305" }, "algorithm": { "name": "tcx-lap-summary", "version": "TrainingCenterDatabase/v2" } },
+  "links": [{ "type": "derivedFrom", "ref": "tcx-1-hr" }]
+}
+```
+
+The activity → a `Session` whose laps are `workUnits`:
+
+```json
+{
+  "id": "tcx-1",
+  "recordType": "Session",
+  "subject": "subj-001",
+  "clientRecordId": "2010-06-26T10:06:11Z",
+  "disciplines": ["running"],
+  "intent": "train",
+  "startTime": "2010-06-26T10:06:11Z",
+  "endTime": "2010-06-26T10:06:41Z",
+  "provenance": { "method": "sensor", "sourceApp": "tcx", "device": { "model": "Garmin Forerunner 305" } },
+  "links": [
+    { "type": "measuredBy", "ref": "tcx-1-route" },
+    { "type": "measuredBy", "ref": "tcx-1-hr" },
+    { "type": "measuredBy", "ref": "tcx-1-cadence" },
+    { "type": "measuredBy", "ref": "tcx-1-power" }
+  ],
+  "workUnits": [
+    {
+      "id": "tcx-1-lap-1",
+      "recordType": "WorkUnit",
+      "scoring": "continuous",
+      "performance": {
+        "time": { "absolute": { "value": 15, "unit": "s" } },
+        "distance": { "absolute": { "value": 50, "unit": "m" } },
+        "energy": { "absolute": { "value": 4, "unit": "kcal" } }
+      },
+      "startTime": "2010-06-26T10:06:11Z"
+    },
+    {
+      "id": "tcx-1-lap-2",
+      "recordType": "WorkUnit",
+      "scoring": "continuous",
+      "performance": {
+        "time": { "absolute": { "value": 20, "unit": "s" } },
+        "distance": { "absolute": { "value": 65, "unit": "m" } },
+        "energy": { "absolute": { "value": 6, "unit": "kcal" } }
+      },
+      "startTime": "2010-06-26T10:06:26Z",
+      "setRole": "tcx:resting"
+    }
+  ]
+}
+```
+
+<Aside type="note" title="Why Lap → WorkUnit, not Block">
+A TCX lap is a contiguous, atomically-scored slice of one continuous effort — exactly
+OpenBody's `WorkUnit` atom (§5.5) — with no grouping or repetition semantics that would earn
+a `Block` (§5.4). Laps therefore land as `Session.workUnits`, the collapsed §5.1 hierarchy:
+producers MUST NOT be forced to invent tiers they have no data for.
+</Aside>
+
+## Notes
+
+- **Multiple `<Activity>` elements → multiple Sessions** (`tcx-1`, `tcx-2`, …); the legs of
+  a `<MultiSportSession>` are plain `<Activity>` elements and map the same way.
+- **`<Id>` is an identifier, not a timestamp** — most producers happen to set it to the
+  start time, so it serves as a start-time fallback only when it actually parses as a date.
+- A Courses- or Workouts-only file (no `<Activity>`) maps to `[]` — reported gracefully as
+  an empty document rather than throwing.
+- Parsing is the same namespace-prefix-tolerant, zero-dependency technique as
+  [GPX](/mapping/gpx/) (`<ns3:Watts>` and `<Watts>` both match) — browser- and node-safe.

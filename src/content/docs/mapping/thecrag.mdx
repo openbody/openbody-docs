@@ -1,0 +1,101 @@
+---
+title: Mapping — theCrag
+description: Map a theCrag climbing logbook CSV into reps-scored WorkUnits with grade modifiers and send/attempt outcomes — the spec corpus's canonical climbing encoding.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+**Source:** a [theCrag](https://www.thecrag.com) logbook CSV export (Logbook → *Action →
+Export logbook as CSV*). **Pillar:** B. **Mapper:**
+[`mapTheCrag`](https://github.com/openbody/openbody-ts/blob/main/src/mappers/thecrag.ts) —
+`mapTheCrag(csv) → records[]`, one `Session` per **date + crag**, one reps-scored `WorkUnit`
+per ascent. The encoding follows the spec corpus's canonical climbing vector
+(`climbing-send-attempt.valid.json`, §5.18) exactly.
+
+## Structural correspondence
+
+| theCrag CSV | OpenBody |
+|---|---|
+| ascents sharing `Ascent Date` + `Crag Name` | `Session` (`disciplines: ["climbing"]`, or `["bouldering"]` when every ascent is a boulder; `name` ← crag) |
+| one ascent row | a `reps`-scored `WorkUnit` (`reps: 1` — theCrag logs one tick per row) |
+| `Ascent ID` | `WorkUnit.clientRecordId` |
+| `Route Grade` / `Ascent Grade` | `performance.modifiers`: `{ type: "grade", value }` |
+| `Ascent Type` (`Onsight`, `Red point`, `Attempt`, …) | `performance.outcome` — see the table below |
+| `Ascent Gear Style` (falling back to `Route Gear Style`) | `exerciseRef`: `Boulder` ⇒ `climb.boulder`; top-rope/second family ⇒ `climb.route.top-rope`; `Sport`/`Trad` ⇒ `climb.route.lead`; other roped styles ⇒ `climb`; blank/unknown ⇒ opaque-only |
+| `Route Name` + `Comment` | `WorkUnit.notes` |
+| raw ascent type / gear style, crag path, country | `extension.thecrag` (lossless residue) |
+
+**Ascent Type → outcome** (deliberately lossy — Red point, Tick, and Repeat all collapse to
+a clean success; the raw type survives in the extension):
+
+| Ascent Type | `outcome.value` | `attempts` |
+|---|---|---|
+| Onsight, Flash, Top rope onsight/flash, Greenpoint onsight | `true` (first try) | `{ made: 1, attempted: 1 }` |
+| Red point, Pink point, Send, Tick, Clean, Repeat, Top rope, Second, Ghost, solo/aid variants, … | `true` | omitted (prior tries unknown) |
+| Attempt, Working, Hang dog, Retreat, Dab, Top rope/Second *with rest* | `false` | `{ made: 0, attempted: 1 }` |
+| Mark (a project flag, not an ascent) / unknown types | outcome omitted | — |
+
+## Input (excerpt of `examples/thecrag/thecrag-sample.csv`)
+
+```csv
+Route Name,Ascent Label,Ascent ID,...,Ascent Type,Route Grade,...,Route Gear Style,Ascent Gear Style,...,Crag Name,...,With,Comment,Quality,Ascent Date,...
+The Bard,,12000000001,...,Onsight,12,,Trad,Trad,...,Arapiles,...,Sam,Perfect rock all the way.,Classic,2026-05-16T00:00:00Z,...
+Kachoong,,12000000002,...,Red point,21,,Sport,Sport,...,Arapiles,...,Sam,Finally! The roof move went first go this time.,Classic,2026-05-16T00:00:00Z,...
+```
+
+## Output (one day at Arapiles, abridged)
+
+```json
+{
+  "id": "thecrag-sess-1",
+  "recordType": "Session",
+  "subject": "subj-001",
+  "name": "Arapiles",
+  "disciplines": ["climbing"],
+  "startTime": "2026-05-16T00:00:00Z",
+  "provenance": { "method": "manual", "sourceApp": "thecrag" },
+  "extension": { "thecrag": { "cragPath": "Arapiles - Organ Pipes", "country": "Australia" } },
+  "workUnits": [
+    {
+      "id": "thecrag-sess-1-a12000000001",
+      "recordType": "WorkUnit",
+      "clientRecordId": "12000000001",
+      "exerciseRef": { "id": "climb.route.lead", "opaque": "Trad" },
+      "scoring": "reps",
+      "notes": "The Bard: Perfect rock all the way.",
+      "performance": {
+        "reps": 1,
+        "modifiers": [{ "type": "grade", "value": "12" }],
+        "outcome": { "kind": "success", "value": true, "attempts": { "made": 1, "attempted": 1 } }
+      },
+      "extension": { "thecrag": { "ascentType": "Onsight", "gearStyle": "Trad" } }
+    },
+    {
+      "id": "thecrag-sess-1-a12000000002",
+      "recordType": "WorkUnit",
+      "clientRecordId": "12000000002",
+      "exerciseRef": { "id": "climb.route.lead", "opaque": "Sport" },
+      "scoring": "reps",
+      "notes": "Kachoong: Finally! The roof move went first go this time.",
+      "performance": {
+        "reps": 1,
+        "modifiers": [{ "type": "grade", "value": "21" }],
+        "outcome": { "kind": "success", "value": true }
+      },
+      "extension": { "thecrag": { "ascentType": "Red point", "gearStyle": "Sport" } }
+    }
+  ]
+}
+```
+
+## Notes
+
+- **The onsight carries `attempts: { made: 1, attempted: 1 }`** (first try, by definition);
+  the redpoint's attempts are **omitted** — the CSV doesn't say how many prior tries the
+  send took, and fabricating a count would be dishonest.
+- **A failed burn is still a success-kind outcome**: `outcome: { kind: "success", value:
+  false, attempts: { made: 0, attempted: 1 } }` — the §5.18 shape for "tried, didn't send".
+- **Grades stay verbatim strings** (`"21"`, `"V6"`, `"7a+"`): a `grade` modifier value, not
+  a number — grade systems are not a scale OpenBody pretends to convert.
+- A bouldering-only day gets `disciplines: ["bouldering"]` (the fixture's Hollow Mountain
+  Cave session); a day mixing roped routes and boulders carries both tokens.

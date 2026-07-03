@@ -1,0 +1,118 @@
+---
+title: Mapping — GPX
+description: Map a GPX track (Runkeeper, Komoot, AllTrails, Ride with GPS, and any other GPX 1.0/1.1 exporter) into a location sampleArray plus HR/cadence/power streams and a Session.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+**Source:** a GPX file (GPS Exchange Format — the lingua franca of GPS exports: Runkeeper,
+Komoot, AllTrails, Ride with GPS, MapMyRun, and any other GPX 1.1 or 1.0 exporter).
+**Pillars:** A + B. **Mapper:**
+[`mapGpx`](https://github.com/openbody/openbody-ts/blob/main/src/mappers/gpx.ts) —
+`mapGpx(xml) → records[]`: one `Session` + a multi-channel `location` `Measurement`, plus
+separate HR/cadence/power streams when Garmin TrackPointExtension (or Strava-style
+`<power>`) data is present.
+
+## Structural correspondence
+
+| GPX | OpenBody |
+|---|---|
+| all `<trk>`/`<trkseg>` track points | one **multi-channel** `location` `sampleArray` (channels `lat`/`lon`/`alt`) — segments mark GPS dropouts/pauses inside one recording, not separate activities |
+| per-point `<time>` | the shared `offsets` array (seconds from the first timed point) |
+| `<gpxtpx:hr>` / `<gpxtpx:cad>` / `<power>` extensions | single-channel `sampleArray` `Measurement`s (`heart_rate` `/min`, `cadence` `/min`, `power` `W`) |
+| `<trk><name>` | `Session.name` |
+| `<trk><type>` | `disciplines` via a small token map (`running`, `cycling`, `hiking`, …); unknown types round-trip as `gpx:<type>` (§4.4 ladder) |
+| `<gpx creator="…">` | `extension.gpx.creator` (free-form vendor text, not a registry token — `provenance.sourceApp` carries the format token `"gpx"`) |
+
+## Input (excerpt of `examples/gpx/gpx-sample.gpx`)
+
+```xml
+<gpx version="1.1" creator="RunKeeper" xmlns="http://www.topografix.com/GPX/1/1"
+     xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v2">
+  <trk>
+    <name>Example GPX Document</name>
+    <type>running</type>
+    <trkseg>
+      <trkpt lat="47.644548" lon="-122.326897">
+        <ele>4.46</ele>
+        <time>2009-10-17T18:37:26Z</time>
+        <extensions>
+          <gpxtpx:TrackPointExtension>
+            <gpxtpx:hr>128</gpxtpx:hr>
+            <gpxtpx:cad>84</gpxtpx:cad>
+          </gpxtpx:TrackPointExtension>
+        </extensions>
+      </trkpt>
+      <!-- … more points; a second <trkseg> after a pause … -->
+    </trkseg>
+  </trk>
+</gpx>
+```
+
+## Output (selected records)
+
+The track → one `location` `Measurement`; a point without `<ele>` gets a `null` `alt`
+channel value:
+
+```json
+{
+  "id": "gpx-route",
+  "recordType": "Measurement",
+  "subject": "subj-001",
+  "type": "location",
+  "sampleArray": {
+    "offsets": [0, 5, 8, 98, 103],
+    "channels": [{ "name": "lat", "unit": "deg" }, { "name": "lon", "unit": "deg" }, { "name": "alt", "unit": "m" }],
+    "dataPoints": [[47.644548, -122.326897, 4.46], [47.6446, -122.3267, 4.94], [47.6447, -122.3266, 6.87], [47.6448, -122.3265, 7.1], [47.6449, -122.3263, null]]
+  },
+  "startTime": "2009-10-17T18:37:26Z",
+  "endTime": "2009-10-17T18:39:09Z",
+  "provenance": { "method": "sensor", "sourceApp": "gpx" }
+}
+```
+
+The whole file → a `Session` referencing every stream (the 90-second gap between segments
+survives honestly in the offsets: `8 → 98`):
+
+```json
+{
+  "id": "gpx-session",
+  "recordType": "Session",
+  "subject": "subj-001",
+  "name": "Example GPX Document",
+  "disciplines": ["running"],
+  "intent": "train",
+  "startTime": "2009-10-17T18:37:26Z",
+  "endTime": "2009-10-17T18:39:09Z",
+  "provenance": { "method": "sensor", "sourceApp": "gpx" },
+  "links": [
+    { "type": "measuredBy", "ref": "gpx-route" },
+    { "type": "measuredBy", "ref": "gpx-hr" },
+    { "type": "measuredBy", "ref": "gpx-cadence" }
+  ],
+  "workUnits": [
+    {
+      "id": "gpx-session-wu",
+      "recordType": "WorkUnit",
+      "scoring": "continuous",
+      "performance": { "time": { "absolute": { "value": 103, "unit": "s" } } }
+    }
+  ],
+  "extension": { "gpx": { "creator": "RunKeeper" } }
+}
+```
+
+## Notes
+
+- **Untimed tracks don't fabricate timing.** `sampleArray` requires real timing (§4.3) and
+  a GPX file without `<time>` states none — so a fully untimed track emits only an undated
+  `Session` with the raw geometry preserved losslessly in `extension.gpx.untimedTrack`
+  (canonical-plus-residue). A mixed file keeps the timed points and counts the dropped
+  untimed ones in `extension.gpx.droppedUntimedPoints`.
+- **Waypoint-only (`<wpt>`) and route-only (`<rte>`) files map to `[]`** — waypoints are map
+  annotations and routes are planned paths, not observations of a subject; the mapper
+  returns an empty document rather than throwing.
+- **GPX 1.0 parses identically**: it uses the same `trk`/`trkseg`/`trkpt` element names,
+  only the `xmlns` differs — and the parser is namespace-prefix tolerant
+  (`<gpxtpx:hr>`, `<ns3:hr>`, and `<hr>` all match), with zero dependencies, browser- and
+  node-safe.
