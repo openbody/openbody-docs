@@ -1,12 +1,16 @@
 // @ts-check
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
+import remarkSpecLinks from "./src/plugins/remark-spec-links.mjs";
 
 // https://astro.build/config
 export default defineConfig({
   // Apex domain on Cloudflare Pages (see DEPLOY.md). No base path: served at the root.
   site: "https://openbody.dev",
   trailingSlash: "ignore",
+  markdown: {
+    remarkPlugins: [remarkSpecLinks],
+  },
   integrations: [
     starlight({
       title: "OpenBody™",
