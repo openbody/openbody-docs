@@ -1,6 +1,6 @@
 ---
 title: Mapping guides
-description: Turn a real incumbent export into OpenBody records — the principles, and one guide each for Hevy, Strong, Strava, and Apple Health.
+description: Turn a real incumbent export into OpenBody records — the supported-formats matrix, the principles, and a guide for every mapper in the reference library.
 ---
 
 import { Aside, LinkCard, CardGrid } from '@astrojs/starlight/components';
@@ -11,6 +11,31 @@ built from the real mappers in [`openbody-ts/src/mappers`](https://github.com/op
 — pure `input → records[]` functions, round-trip tested (`npm run mappers`). The mappers
 resolve source exercise names to canonical [registry](/registry/exercises/) ids where the
 registry covers them, falling back to the lossless `opaque` form otherwise.
+
+## Supported formats
+
+All mappers are importable from the `openbody-ts` package root and run in both node and the
+browser. The [in-browser converter](/tools/convert/) wires a subset of them to a drag-and-drop
+page.
+
+| Format | Direction | Works in | Caveats |
+|---|---|---|---|
+| [Hevy](/mapping/hevy/) (workout CSV) | import | library + [browser tool](/tools/convert/) | |
+| [Strong](/mapping/strong/) (workout CSV) | import | library + [browser tool](/tools/convert/) | `,`- or `;`-delimited exports both parse |
+| [Strava](/mapping/strava/) (activity + streams JSON) | import | library + [browser tool](/tools/convert/) | the library maps the API's activity+streams responses (streams must include `time`); the browser tool reads the bulk-export `activities.csv` instead |
+| [Apple Health / Health Connect](/mapping/apple-health/) (`export.xml`) | import | library + [browser tool](/tools/convert/) | |
+| [FIT](/mapping/fit/) (recorded activity or structured workout) | import | library | takes **pre-decoded** FIT messages — the caller decodes the binary ([why](/mapping/fit/)) |
+| [GPX](/mapping/gpx/) (GPS track) | import | library | untimed tracks degrade honestly (no fabricated timing) |
+| [TCX](/mapping/tcx/) (Garmin Training Center XML) | import | library | |
+| [Fitbit](/mapping/fitbit/) (Google Takeout folder) | import | library | takes a list of `{ name, text }` files; timestamps need a `utcOffset` |
+| [Concept2](/mapping/concept2/) (Logbook season CSV) | import | library | one row per workout — per-stroke detail isn't in this export |
+| [theCrag](/mapping/thecrag/) (logbook CSV) | import | library | |
+| [Strong](/mapping/to-strong/) (CSV out — also imports into Hevy) | **export** | library + [browser tool](/tools/convert/) | best-effort by design: losses reported machine-readably ([contract](/mapping/to-strong/)) |
+
+The browser tool currently accepts **Hevy, Strong, Apple Health, and Strava** files; the
+other formats run through the library. CSV timestamps carry no UTC offset at the source, so
+the CSV-based mappers take an optional `utcOffset` and are timezone-independent — the same
+bytes map to the same records on any machine.
 
 <Aside type="note" title="The lossless guarantee is directional (§10)">
 - *incumbent → OpenBody* is **lossless** — OpenBody is the superset; anything lacking a core
@@ -41,6 +66,12 @@ registry covers them, falling back to the lossless `opaque` form otherwise.
   <LinkCard title="Strava" href="/mapping/strava/" description="Activity + streams → sampleArray Measurements + a Session linked by measuredBy. Both pillars." />
   <LinkCard title="Apple Health / Health Connect" href="/mapping/apple-health/" description="export.xml → quantity / category Measurements + HKWorkout → Session. Health Connect maps identically." />
   <LinkCard title="FIT" href="/mapping/fit/" description="Recorded activity → telemetry + Session (like Strava); structured workout (workout/workout_step) → planned Session prescriptions with Targets." />
+  <LinkCard title="GPX" href="/mapping/gpx/" description="GPS tracks from Runkeeper, Komoot, AllTrails, and any GPX 1.0/1.1 exporter → a location sampleArray + HR/cadence/power streams + Session." />
+  <LinkCard title="TCX" href="/mapping/tcx/" description="Garmin Training Center XML → trackpoint streams + Lap → WorkUnit structure. Covers Garmin Connect, Polar legacy, MapMyRun." />
+  <LinkCard title="Fitbit" href="/mapping/fitbit/" description="Google Takeout folder → exercise Sessions, intraday steps/HR, adjacent sleep-stage intervals, exact-decimal weight." />
+  <LinkCard title="Concept2" href="/mapping/concept2/" description="Logbook season CSV → distance/time-scored erg pieces, interval Blocks with rest, linked HR aggregates." />
+  <LinkCard title="theCrag" href="/mapping/thecrag/" description="Climbing logbook CSV → reps-scored ascents with grade modifiers and send/attempt outcomes — the corpus's canonical climbing encoding." />
+  <LinkCard title="OpenBody → Strong (outbound)" href="/mapping/to-strong/" description="The mirror direction: OpenBody records → a Strong-importable CSV, with a machine-readable omissions report." />
 </CardGrid>
 
 <Aside type="tip" title="What fit cleanly, and what to watch">
