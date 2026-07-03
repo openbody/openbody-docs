@@ -1,0 +1,184 @@
+---
+title: Related projects & ecosystem
+description: How OpenBody relates to peer open formats, aggregation APIs, device file formats, platform health stores, clinical standards, and open exercise data — and where the interop hooks are.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+No project exists in a vacuum. Health and fitness data flows through many layers — open
+interchange formats, hosted aggregators, device file formats, on-device platform stores,
+clinical standards, and open exercise datasets — and OpenBody deliberately sits *among*
+them, not against them. This page is the map: what each neighbor is, what it covers, and
+where a concrete bridge to OpenBody exists or could. The timing is good for bridges: the
+**EU Data Act**'s data-access obligations for connected products (fitness trackers
+included) apply from **September 2026**, and portable, well-specified formats are how
+those access rights become usable in practice.
+
+If you work on any of these projects and want a crosswalk, a mapper, or just to compare
+notes — [open an issue](https://github.com/openbody/openbody/issues). We'd genuinely like
+to build these bridges together.
+
+## Peer open formats
+
+### OpenSet
+
+[OpenSet](https://openset.dev/) ([GitHub](https://github.com/getdiby/OpenSet), MIT) is an
+open, sport-agnostic standard for representing structured training sessions, workouts, and
+programs — a Program → Phase → Workout → Block → Series → Exercise → Set hierarchy with ten
+execution modes (supersets, AMRAP, EMOM, Tabata, …) and composable set dimensions (21 at
+v1.0). Its emphasis is **prescription**: describing what a workout *should be*. OpenBody's
+emphasis is **interchange of logged data**: what was measured and performed, alongside
+planned prescriptions, across a canonical exercise registry and platform mappers. The two
+emphases compose naturally. OpenSet ships a 50-entry starter exercise library with
+snake_case ids; both projects publish JSON Schema (2020-12), so a mapping table from those
+ids to OpenBody [registry](/registry/exercises/) ids would be small — and OpenBody's
+registry could serve as a shared exercise-resolution layer. If you use OpenSet and want
+that crosswalk, we'd be glad to host it.
+
+### OpenWeight
+
+[OpenWeight](https://openweight.dev/) ([GitHub](https://github.com/radupana/openweight),
+Apache-2.0) is an open, vendor-neutral JSON format for exchanging **strength-training**
+programs, workouts, templates, and logs, with JSON Schemas plus TypeScript and Kotlin
+SDKs. The scope split is clean: OpenWeight models strength training; OpenBody covers
+logged training plus telemetry and body measurements across disciplines. OpenWeight
+identifies exercises by name with descriptive equipment/category/muscle strings — which
+is exactly where OpenBody's CC0 registry can help: resolving those names to canonical
+movement ids would give OpenWeight documents stable cross-app identity, and a
+JSON-to-JSON mapper between the two formats is straightforward in either direction. An
+issue or PR proposing that name-resolution crosswalk would be very welcome.
+
+## Aggregation APIs
+
+### Terra
+
+[Terra](https://tryterra.co/) ([GitHub](https://github.com/tryterra)) is a commercial API
+that aggregates health and fitness data from hundreds of wearables and apps — developers
+integrate once and receive standardized JSON via webhooks, across data models for
+activity, sleep, body, daily summaries, nutrition, and more. It operates at a **different
+layer** from OpenBody: Terra is hosted middleware that moves live data between services;
+OpenBody is a neutral at-rest and interchange format you can hold, archive, and validate
+offline. The data model is vendor-designed, but Terra publishes its OpenAPI 3.1 and JSON
+Schema definitions under Apache-2.0 at
+[github.com/tryterra/openapi](https://github.com/tryterra/openapi) — which makes a
+mechanical Terra-payload → OpenBody mapper a well-defined, schema-driven project. A
+natural pairing: Terra for the pipe, OpenBody for the copy you keep.
+
+## Device & file formats
+
+These are formats OpenBody **maps**, not competing data models — the reference library
+imports all three, and the [supported-formats matrix](/mapping/) has the details and
+per-format guides.
+
+- **[FIT](https://developer.garmin.com/fit/)** — Garmin's binary protocol and profile, the
+  de facto native format of sports devices. Openly documented and royalty-free to
+  implement, under Garmin's proprietary FIT Protocol License rather than an open-source
+  license. OpenBody maps both its recorded-activity and structured-workout sides
+  ([guide](/mapping/fit/)).
+- **[TCX](https://www8.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd)** — Garmin's
+  earlier Training Center XML schema, still served and widely emitted, with no stated
+  license ([guide](/mapping/tcx/)).
+- **[GPX](https://www.topografix.com/gpx.asp)** — TopoGrafix's open, public-domain GPS
+  exchange format (GPX 1.1 since 2004). It carries position/time/elevation tracks, with
+  heart rate and cadence via extensions ([guide](/mapping/gpx/)).
+
+## Platform health stores
+
+### Apple HealthKit
+
+[HealthKit](https://developer.apple.com/documentation/healthkit) is Apple's on-device,
+permission-gated health store and framework for iOS, iPadOS, watchOS, and visionOS,
+spanning activity, vitals, sleep, nutrition, cycle tracking, mental wellbeing, and FHIR
+clinical records, with workouts modeled as `HKWorkout`. It is publicly documented and
+Apple-governed. Its fixed, well-documented type system is an ideal mapping target, and
+OpenBody's [Apple Health mapper](/mapping/apple-health/) already converts `export.xml`
+into Measurements and Sessions.
+
+### Google Health Connect
+
+[Health Connect](https://developer.android.com/health-and-fitness/health-connect) is
+Android's on-device health data hub (a system component since Android 14) and the
+successor to the Google Fit APIs, which are deprecated — closed to new developers since
+May 2024 and supported until the end of 2026. Health Connect models workouts as
+`ExerciseSessionRecord` with 47 enumerated exercise session types, plus exercise routes
+and training plans; it is openly documented and Google-governed. Those 47 types are a
+tractable, finite mapping table — OpenBody's
+[Apple Health / Health Connect guide](/mapping/apple-health/) covers the shared shape,
+and contributions extending the Health Connect side are welcome.
+
+## Health & clinical standards
+
+### IEEE 1752 / Open mHealth
+
+[IEEE 1752.1-2021](https://standards.ieee.org/ieee/1752.1/6982/) is a published IEEE
+standard for mobile health data — openly published JSON schemas for sleep and physical
+activity plus shared metadata — with
+[IEEE 1752.2](https://standards.ieee.org/ieee/1752.2/10610/) (cardiovascular,
+respiratory, and metabolic measures) in active development. It grew out of
+[Open mHealth](https://github.com/openmhealth/schemas) (Apache-2.0), whose schema work
+has since moved into the IEEE process. Scope-wise it models episode-level physical
+activity (activity name, duration, distance, intensity) and ambulatory health measures;
+OpenBody models the internal structure of training — sets, loads, intervals, scoring —
+alongside telemetry. A clean complement: a down-mapping from an OpenBody Session to a
+1752 physical-activity episode is a well-bounded project we'd be happy to see proposed.
+
+### FHIR Physical Activity IG
+
+The [HL7 FHIR Physical Activity Implementation Guide](https://hl7.org/fhir/us/physical-activity/)
+(v1.0.0 STU1, FHIR R4) standardizes physical activity in **clinical** workflows —
+activity-level measures such as weekly moderate-to-vigorous minutes, exercise referrals,
+and care plans. It doesn't model workout structure, and OpenBody doesn't model care
+coordination; the bridge is aggregation. OpenBody records carry enough to compute the
+IG's activity-level measures, so an OpenBody → FHIR PA summarizer is a natural
+integration for anyone connecting consumer training data to clinical systems.
+
+## Open exercise data
+
+OpenBody's exercise [registry](/registry/exercises/) is **CC0** precisely so it can be a
+shared resource rather than a moat — and it already builds on the open datasets below.
+
+### wger
+
+[wger](https://wger.de/) ([GitHub](https://github.com/wger-project/wger)) is a
+self-hosted, free-software workout and nutrition manager (code AGPL-3.0-or-later) whose
+exercise database carries per-record licensing (CC-BY-SA 4.0) and stable UUIDs, served
+via a public API. OpenBody's registry keeps its data CC0, so wger entries aren't imported
+— but a **crosswalk** between wger UUIDs and OpenBody registry ids would let the two id
+spaces interoperate without any license entanglement, and we'd welcome one.
+
+### free-exercise-db
+
+[free-exercise-db](https://github.com/yuhonas/free-exercise-db) is a public-domain
+(Unlicense) dataset of 800+ exercises as JSON with a schema and stable slug ids. This one
+is already load-bearing here: it is the **v1 seed of OpenBody's registry** — most entries
+derive from its worklist, with ids and facet classifications authored to the OpenBody
+spec and per-entry review — and the registry maintains a crosswalk to its slugs, with
+per-entry provenance recorded. Concrete proof that the registry is built *with* the open
+data ecosystem, not beside it.
+
+### Compendium of Physical Activities
+
+The [Compendium of Physical Activities](https://pacompendium.com/) (2024 edition, with
+Adult, Older Adult, and Wheelchair compendia) is the academic canonical registry of
+**activity-level** codes: five-digit codes with MET values, free to use with citation. It
+identifies activities ("resistance training"), where OpenBody's registry identifies
+movements ("barbell back squat") — different granularities that stack. OpenBody already
+uses Compendium MET values as a registry attribute and resolves MET codes on output, so
+the bridge here isn't hypothetical; it's in the data.
+
+### OpenProgression
+
+[OpenProgression](https://openprogression.org/data) publishes an MIT-licensed JSON
+dataset of research-backed strength benchmark standards (29 benchmarks across 7 levels),
+keyed by snake_case movement ids. It's a benchmarking dataset rather than an interchange
+format — and exactly the kind of project a canonical movement registry serves: a small
+mapping from its movement ids to OpenBody registry ids would let any OpenBody-speaking
+app look up benchmarks for a logged lift. A one-file PR, and an invited one.
+
+---
+
+<Aside type="tip" title="Want a bridge that isn't here?">
+Crosswalks, mappers, and down-mappings to any of these projects are welcome as issues or
+PRs — see [Governance & contributing](/governance/). The registry data is CC0 and the
+reference mappers are Apache-2.0, so nothing on our side encumbers the bridge.
+</Aside>

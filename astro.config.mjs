@@ -97,6 +97,7 @@ export default defineConfig({
           items: [
             { label: "Governance & contributing", link: "/governance/" },
             { label: "Licensing", link: "/licensing/" },
+            { label: "Related projects & ecosystem", link: "/ecosystem/" },
           ],
         },
       ],
