@@ -47,6 +47,21 @@ function stripLeadingH1(md) {
   return md.replace(/^\s*#\s+.*\r?\n/, "");
 }
 
+/**
+ * Rewrite relative Markdown links to the canonical GitHub blob URL. A source file like
+ * conformance/README.md links siblings relatively (`[EQUIVALENCE.md](./EQUIVALENCE.md)`);
+ * those paths don't exist on the docs site and 404. Resolve them against the source
+ * file's directory in the canonical repo instead. Absolute URLs and #anchors pass through.
+ */
+function rewriteRelativeLinks(md, sourceFile) {
+  const srcDir = dirname(sourceFile);
+  return md.replace(/\]\((?!https?:\/\/|#|\/)([^)\s]+?\.md(?:#[^)\s]*)?)\)/g, (_, target) => {
+    const [path, anchor = ""] = target.split(/(?=#)/);
+    const resolved = join(srcDir, path).replace(/\\/g, "/").replace(/^\.\//, "");
+    return `](${SRC_REPO}/blob/main/${resolved}${anchor})`;
+  });
+}
+
 /** Escape YAML double-quoted scalar. */
 function yamlStr(s) {
   return `"${String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
@@ -87,7 +102,7 @@ writeDoc(
   },
   banner("SPEC.md", "Section/heading anchors and the normative text mirror the source exactly.") +
     "\n" +
-    stripLeadingH1(specRaw),
+    rewriteRelativeLinks(stripLeadingH1(specRaw), "SPEC.md"),
 );
 
 // ---- 2. CHANGELOG.md ---------------------------------------------------------
@@ -97,7 +112,7 @@ writeDoc(
     title: yamlStr("Changelog"),
     description: yamlStr("Version history of the OpenBody standard (semantic versioning)."),
   },
-  banner("CHANGELOG.md") + "\n" + stripLeadingH1(read("CHANGELOG.md")),
+  banner("CHANGELOG.md") + "\n" + rewriteRelativeLinks(stripLeadingH1(read("CHANGELOG.md")), "CHANGELOG.md"),
 );
 
 // ---- 3. conformance/README.md ------------------------------------------------
@@ -107,7 +122,9 @@ writeDoc(
     title: yamlStr("Conformance — reference README"),
     description: yamlStr("The canonical conformance README: profiles, vectors, and the corpus."),
   },
-  banner("conformance/README.md") + "\n" + stripLeadingH1(read("conformance/README.md")),
+  banner("conformance/README.md") +
+    "\n" +
+    rewriteRelativeLinks(stripLeadingH1(read("conformance/README.md")), "conformance/README.md"),
 );
 
 // ---- 4. JSON Schema (copy for download + embed) ------------------------------
