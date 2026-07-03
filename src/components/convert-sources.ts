@@ -229,6 +229,16 @@ function dateLabel(iso: string): string {
   return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
+/** `totalSeconds` → "7:23 h" (or "42 min" under an hour) for the unified summary. */
+export function formatHoursMinutes(totalSeconds: number): string {
+  let h = Math.floor(totalSeconds / 3600);
+  let min = Math.round((totalSeconds % 3600) / 60);
+  if (min === 60) { h++; min = 0; }
+  if (h > 0) return `${h}:${String(min).padStart(2, "0")} h`;
+  if (min > 0) return `${min} min`;
+  return `${Math.round(totalSeconds)} s`;
+}
+
 /** Presentation-only rollup of endurance-shaped records (Sessions + Measurements). */
 export function summarizeEndurance(records: OpenBodyRecord[]): EnduranceSummary {
   const disciplines = new Map<string, number>();
@@ -286,5 +296,186 @@ export function summarizeEndurance(records: OpenBodyRecord[]): EnduranceSummary 
     totalKm,
     totalSeconds,
     sessions,
+  };
+}
+
+// --- unified post-conversion summary ------------------------------------------------------
+// One presentation-only rollup for the summary card that renders after every conversion,
+// regardless of source: sessions + date range + disciplines, top movements by set count
+// (canonical registry ids where §6 resolution matched, lossless opaque names otherwise),
+// and per-week activity buckets for the inline-SVG sparkline. Pure data — no DOM here.
+
+export interface TopMovement {
+  /** Canonical registry id when §6 resolution matched the app's name; undefined when opaque. */
+  id?: string;
+  /** Display label: the canonical id when resolved, else the app's own (lossless) name. */
+  label: string;
+  setCount: number;
+}
+
+export interface WeeklyPoint {
+  /** UTC start of the bucket, as YYYY-MM-DD. */
+  bucketStart: string;
+  value: number;
+}
+
+export interface UnifiedSummary {
+  sessionCount: number;
+  /** ISO startTime of the earliest / latest dated session; undefined when none carry dates. */
+  rangeStart?: string;
+  rangeEnd?: string;
+  disciplines: [string, number][];
+  /** Strength: total logged sets + per-movement set counts, most-trained first. */
+  totalSets: number;
+  topMovements: TopMovement[];
+  /** Endurance rollup (0 when the source has none). */
+  totalKm: number;
+  totalSeconds: number;
+  measurementCount: number;
+  measurementsByType: [string, number][];
+  weekly: {
+    points: WeeklyPoint[];
+    /** Falls back to month buckets when weekly bars would span more than ~4 years. */
+    bucket: "week" | "month";
+    metric: "sets" | "km" | "hours";
+  };
+}
+
+const WEEK_MS = 7 * 24 * 3600 * 1000;
+
+/** UTC-midnight Monday of the week containing `ms`. */
+function weekStartMs(ms: number): number {
+  const d = new Date(ms);
+  const monOffset = (d.getUTCDay() + 6) % 7; // Mon=0 … Sun=6
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - monOffset);
+}
+
+function isoDate(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/** Roll every converted record up into the one summary card shown above the downloads. */
+export function summarizeUnified(
+  records: OpenBodyRecord[],
+  kind: "strength" | "endurance",
+): UnifiedSummary {
+  const disciplines = new Map<string, number>();
+  const measurementsByType = new Map<string, number>();
+  const movements = new Map<string, TopMovement>();
+  let sessionCount = 0;
+  let measurementCount = 0;
+  let totalSets = 0;
+  let totalKm = 0;
+  let totalSeconds = 0;
+  let minStartMs = Infinity;
+  let maxStartMs = -Infinity;
+  const perSession: { startMs: number; sets: number; km: number; seconds: number }[] = [];
+
+  for (const rec of records) {
+    if (rec.recordType === "Measurement") {
+      measurementCount++;
+      const t = String(rec.type ?? "unknown");
+      measurementsByType.set(t, (measurementsByType.get(t) ?? 0) + 1);
+      continue;
+    }
+    if (rec.recordType !== "Session") continue;
+    sessionCount++;
+    const discipline = String(rec.disciplines?.[0] ?? "unknown");
+    disciplines.set(discipline, (disciplines.get(discipline) ?? 0) + 1);
+
+    // Sets per movement — Session.exercises plus Block children (supersets).
+    let sets = 0;
+    const exercises = [
+      ...(rec.exercises ?? []),
+      ...((rec.blocks ?? []).flatMap((b: OpenBodyRecord) => b.children ?? [])),
+    ];
+    for (const ex of exercises) {
+      if (ex?.recordType !== "Exercise") continue;
+      const n = (ex.workUnits ?? []).length;
+      sets += n;
+      const er = ex.exerciseRef;
+      if (er === undefined) continue;
+      const id = typeof er === "string" ? er : er.id;
+      const opaque = typeof er === "string" ? undefined : er.opaque;
+      const key = id ?? `opaque:${opaque ?? "(unnamed)"}`;
+      const entry = movements.get(key) ?? { id, label: id ?? opaque ?? "(unnamed)", setCount: 0 };
+      entry.setCount += n;
+      movements.set(key, entry);
+    }
+    totalSets += sets;
+
+    // Endurance totals — distance/time on WorkUnits, session span as the time fallback.
+    let km = 0;
+    let seconds = 0;
+    for (const wu of rec.workUnits ?? []) {
+      const p = wu.performance ?? {};
+      const dist = p.distance?.absolute;
+      if (dist && typeof dist.value === "number") km += toKm(dist.value, String(dist.unit ?? "m"));
+      const time = p.time?.absolute;
+      if (time && typeof time.value === "number" && time.unit === "s") seconds += time.value;
+    }
+    if (seconds === 0 && rec.startTime && rec.endTime) {
+      const span = (new Date(rec.endTime).getTime() - new Date(rec.startTime).getTime()) / 1000;
+      if (Number.isFinite(span) && span > 0) seconds = span;
+    }
+    totalKm += km;
+    totalSeconds += seconds;
+
+    const startMs = new Date(String(rec.startTime ?? "")).getTime();
+    if (Number.isFinite(startMs)) {
+      minStartMs = Math.min(minStartMs, startMs);
+      maxStartMs = Math.max(maxStartMs, startMs);
+      perSession.push({ startMs, sets, km, seconds });
+    }
+  }
+
+  // Weekly buckets across the full range (zero-filled so quiet weeks read as gaps).
+  const metric: "sets" | "km" | "hours" =
+    kind === "strength" ? "sets" : totalKm > 0 ? "km" : "hours";
+  const points: WeeklyPoint[] = [];
+  let bucket: "week" | "month" = "week";
+  if (perSession.length > 0) {
+    const firstWeek = weekStartMs(minStartMs);
+    const weekCount = Math.floor((weekStartMs(maxStartMs) - firstWeek) / WEEK_MS) + 1;
+    bucket = weekCount > 208 ? "month" : "week";
+    const keyOf = (ms: number): number => {
+      if (bucket === "week") return weekStartMs(ms);
+      const d = new Date(ms);
+      return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
+    };
+    const sums = new Map<number, number>();
+    for (const s of perSession) {
+      const v = metric === "sets" ? s.sets : metric === "km" ? s.km : s.seconds / 3600;
+      const k = keyOf(s.startMs);
+      sums.set(k, (sums.get(k) ?? 0) + v);
+    }
+    // Walk every bucket from first to last, filling gaps with 0.
+    let k = keyOf(minStartMs);
+    const last = keyOf(maxStartMs);
+    while (k <= last) {
+      points.push({ bucketStart: isoDate(k), value: sums.get(k) ?? 0 });
+      if (bucket === "week") k += WEEK_MS;
+      else {
+        const d = new Date(k);
+        k = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1);
+      }
+    }
+  }
+
+  const byCountDesc = (a: [string, number], b: [string, number]) => b[1] - a[1];
+  return {
+    sessionCount,
+    rangeStart: Number.isFinite(minStartMs) && minStartMs !== Infinity
+      ? new Date(minStartMs).toISOString()
+      : undefined,
+    rangeEnd: maxStartMs !== -Infinity ? new Date(maxStartMs).toISOString() : undefined,
+    disciplines: [...disciplines.entries()].sort(byCountDesc),
+    totalSets,
+    topMovements: [...movements.values()].sort((a, b) => b.setCount - a.setCount),
+    totalKm,
+    totalSeconds,
+    measurementCount,
+    measurementsByType: [...measurementsByType.entries()].sort(byCountDesc),
+    weekly: { points, bucket, metric },
   };
 }

@@ -93,7 +93,9 @@ import { Aside } from "@astrojs/starlight/components";
     <li>Export your data from one of the apps above.</li>
     <li>Drop the file below — the format is detected automatically. Parsing happens entirely
       in your browser via JavaScript — the file is never sent anywhere.</li>
-    <li>Review the human-readable preview, then download the portable OpenBody JSON.</li>
+    <li>Review the summary and human-readable preview, then download the portable OpenBody
+      JSON — and, for lifting exports, a Strong-format CSV that both Strong and Hevy can
+      import.</li>
   </ol>
 
   <div id="convert-tool" class="ob-tool">
@@ -106,13 +108,22 @@ import { Aside } from "@astrojs/starlight/components";
 
     <p id="status" class="ob-status-msg" role="status" aria-live="polite" hidden></p>
 
+    <div id="summary" class="ob-summary" hidden></div>
+
     <div id="resolution" class="ob-resolution" hidden></div>
 
     <div id="preview" class="ob-preview" hidden></div>
 
-    <button id="download-btn" type="button" class="ob-btn ob-btn-primary" hidden>
-      Download as OpenBody JSON
-    </button>
+    <div class="ob-downloads">
+      <button id="download-btn" type="button" class="ob-btn ob-btn-primary" hidden>
+        Download as OpenBody JSON
+      </button>
+      <button id="download-strong-btn" type="button" class="ob-btn ob-btn-secondary" hidden>
+        Download as Strong CSV
+      </button>
+    </div>
+
+    <div id="strong-info" class="ob-strong-info" hidden></div>
 
     <div id="email-capture" class="ob-email-card" hidden>
       <form id="email-form">
@@ -150,24 +161,36 @@ import { Aside } from "@astrojs/starlight/components";
   </p>
 
   <script>
-    import { mapHevy, mapStrong, mapAppleHealth } from "@openbody/openbody-ts";
+    import {
+      mapHevy,
+      mapStrong,
+      mapAppleHealth,
+      mapOpenBodyToStrong,
+      type ToStrongResult,
+    } from "@openbody/openbody-ts";
     import { summarizeSessions, formatSetLine, type SessionSummary } from "../../lib/hevy/summarize";
     import {
       detectSource,
       mapStravaActivitiesCsv,
       summarizeEndurance,
-      formatDuration,
+      summarizeUnified,
+      formatHoursMinutes,
       SOURCE_LABEL,
       SOURCE_KIND,
       type SourceId,
+      type UnifiedSummary,
+      type WeeklyPoint,
     } from "../../components/convert-sources";
 
     const fileInput = document.getElementById("file-input") as HTMLInputElement;
     const dropZone = document.getElementById("drop-zone") as HTMLElement;
     const statusEl = document.getElementById("status") as HTMLElement;
+    const summaryEl = document.getElementById("summary") as HTMLElement;
     const resolutionEl = document.getElementById("resolution") as HTMLElement;
     const previewEl = document.getElementById("preview") as HTMLElement;
     const downloadBtn = document.getElementById("download-btn") as HTMLButtonElement;
+    const downloadStrongBtn = document.getElementById("download-strong-btn") as HTMLButtonElement;
+    const strongInfoEl = document.getElementById("strong-info") as HTMLElement;
     const emailCapture = document.getElementById("email-capture") as HTMLElement;
     const emailForm = document.getElementById("email-form") as HTMLFormElement;
     const emailInput = document.getElementById("email-input") as HTMLInputElement;
@@ -176,6 +199,7 @@ import { Aside } from "@astrojs/starlight/components";
 
     let lastRecords: unknown[] | null = null;
     let lastBaseName = "openbody-export";
+    let lastStrong: ToStrongResult | null = null;
 
     function setStatus(message: string, kind: "info" | "success" | "error") {
       statusEl.hidden = false;
@@ -188,8 +212,275 @@ import { Aside } from "@astrojs/starlight/components";
       previewEl.replaceChildren();
       resolutionEl.hidden = true;
       resolutionEl.replaceChildren();
+      summaryEl.hidden = true;
+      summaryEl.replaceChildren();
+      strongInfoEl.hidden = true;
+      strongInfoEl.replaceChildren();
       downloadBtn.hidden = true;
+      downloadStrongBtn.hidden = true;
       lastRecords = null;
+      lastStrong = null;
+    }
+
+    // --- unified post-conversion summary (all sources) ---------------------------------
+    // One modest summary card above the downloads: sessions + date range, discipline chips,
+    // top movements by set count (canonical registry ids where §6 resolution matched), and
+    // a weekly-activity sparkline. Deliberately a summary card, not a dashboard: no
+    // filters, no tabs — the point is "that's my training history, unified".
+
+    function rangeLabel(iso: string): string {
+      const d = new Date(iso);
+      return isNaN(d.getTime()) ? iso : d.toLocaleDateString(undefined, { dateStyle: "medium" });
+    }
+
+    const SPARK_METRIC_LABEL = { sets: "Sets", km: "Distance (km)", hours: "Hours" } as const;
+
+    function sparkValueLabel(value: number, metric: "sets" | "km" | "hours"): string {
+      if (metric === "sets") return `${value} set${value === 1 ? "" : "s"}`;
+      if (metric === "km") return `${value.toFixed(1)} km`;
+      return formatHoursMinutes(value * 3600);
+    }
+
+    // Inline SVG, zero dependencies. One accent color (the site's own token, so it reads
+    // in light and dark mode), a hairline baseline, no axes — a sparkline, not a chart
+    // widget. Sized in real pixels from the container so bars stay crisp; native <title>
+    // tooltips carry the per-week numbers.
+    function buildSparkline(
+      points: WeeklyPoint[],
+      bucket: "week" | "month",
+      metric: "sets" | "km" | "hours",
+      containerWidth: number,
+    ): SVGSVGElement {
+      const NS = "http://www.w3.org/2000/svg";
+      const H = 56;
+      const baseY = H - 1;
+      const n = points.length;
+      const gap = n > 1 ? (containerWidth / n >= 4 ? 2 : 1) : 0;
+      const barW = Math.min(20, Math.max(1, (containerWidth - gap * (n - 1)) / n));
+      const width = Math.ceil(n * barW + gap * (n - 1));
+      const max = Math.max(...points.map((p) => p.value));
+
+      const svg = document.createElementNS(NS, "svg");
+      svg.setAttribute("class", "ob-spark");
+      svg.setAttribute("viewBox", `0 0 ${width} ${H}`);
+      svg.setAttribute("width", String(width));
+      svg.setAttribute("height", String(H));
+      svg.setAttribute("role", "img");
+      svg.setAttribute(
+        "aria-label",
+        `${SPARK_METRIC_LABEL[metric]} per ${bucket}, ${points.length} ${bucket}s, ` +
+          `peaking at ${sparkValueLabel(max, metric)}.`,
+      );
+
+      points.forEach((p, i) => {
+        if (p.value <= 0 || max <= 0) return;
+        const h = Math.max(2, (p.value / max) * (baseY - 4));
+        const rect = document.createElementNS(NS, "rect");
+        rect.setAttribute("x", (i * (barW + gap)).toFixed(2));
+        rect.setAttribute("y", (baseY - h).toFixed(2));
+        rect.setAttribute("width", barW.toFixed(2));
+        rect.setAttribute("height", h.toFixed(2));
+        if (barW >= 3) rect.setAttribute("rx", "1.5");
+        const title = document.createElementNS(NS, "title");
+        const label = new Date(`${p.bucketStart}T00:00:00Z`).toLocaleDateString(undefined, {
+          ...(bucket === "week" ? { day: "numeric" } : {}), month: "short", year: "numeric",
+          timeZone: "UTC",
+        });
+        title.textContent =
+          `${bucket === "week" ? "Week of " : ""}${label}: ${sparkValueLabel(p.value, metric)}`;
+        rect.append(title);
+        svg.append(rect);
+      });
+
+      const baseline = document.createElementNS(NS, "line");
+      baseline.setAttribute("class", "ob-spark-baseline");
+      baseline.setAttribute("x1", "0");
+      baseline.setAttribute("x2", String(width));
+      baseline.setAttribute("y1", String(baseY + 0.5));
+      baseline.setAttribute("y2", String(baseY + 0.5));
+      svg.append(baseline);
+      return svg;
+    }
+
+    const TOP_MOVEMENTS_SHOWN = 5;
+
+    function renderSummary(summary: UnifiedSummary, kind: "strength" | "endurance") {
+      summaryEl.replaceChildren();
+
+      // Headline: sessions + date range.
+      const title = document.createElement("p");
+      title.className = "ob-summary-title";
+      let head = `${summary.sessionCount} session${summary.sessionCount === 1 ? "" : "s"}`;
+      if (summary.rangeStart && summary.rangeEnd) {
+        const from = rangeLabel(summary.rangeStart);
+        const to = rangeLabel(summary.rangeEnd);
+        head += from === to ? ` · ${from}` : ` · ${from} – ${to}`;
+      }
+      title.textContent = head;
+      summaryEl.append(title);
+
+      // Discipline chips.
+      if (summary.disciplines.length > 0) {
+        const chips = document.createElement("div");
+        chips.className = "ob-chips";
+        for (const [d, n] of summary.disciplines) {
+          const chip = document.createElement("span");
+          chip.className = "ob-chip";
+          chip.textContent = summary.disciplines.length === 1 && n === summary.sessionCount
+            ? d
+            : `${d} ×${n}`;
+          chips.append(chip);
+        }
+        summaryEl.append(chips);
+      }
+
+      // One line of totals, per kind.
+      const facts = document.createElement("p");
+      facts.className = "ob-summary-facts";
+      const bits: string[] = [];
+      if (kind === "strength") {
+        bits.push(`${summary.totalSets} set${summary.totalSets === 1 ? "" : "s"} logged`);
+        if (summary.topMovements.length > 0) {
+          bits.push(`${summary.topMovements.length} distinct movement${summary.topMovements.length === 1 ? "" : "s"}`);
+        }
+      } else {
+        if (summary.totalKm > 0) bits.push(`${summary.totalKm.toFixed(1)} km`);
+        if (summary.totalSeconds > 0) bits.push(formatHoursMinutes(summary.totalSeconds));
+        if (summary.measurementCount > 0) {
+          bits.push(
+            `${summary.measurementCount} measurement${summary.measurementCount === 1 ? "" : "s"} ` +
+              `(${summary.measurementsByType.map(([t, n]) => `${t} ×${n}`).join(", ")})`,
+          );
+        }
+      }
+      if (bits.length > 0) {
+        facts.textContent = bits.join(" · ");
+        summaryEl.append(facts);
+      }
+
+      // Top movements by set count — canonical ids where the registry resolved the name
+      // (that's the registry visibly doing work), the app's own name otherwise.
+      if (kind === "strength" && summary.topMovements.length > 0) {
+        const subhead = document.createElement("p");
+        subhead.className = "ob-summary-subhead";
+        subhead.textContent = "Top movements";
+        const list = document.createElement("ol");
+        list.className = "ob-movements";
+        for (const mv of summary.topMovements.slice(0, TOP_MOVEMENTS_SHOWN)) {
+          const li = document.createElement("li");
+          if (mv.id !== undefined) {
+            const code = document.createElement("code");
+            code.textContent = mv.id;
+            li.append(code);
+          } else {
+            const span = document.createElement("span");
+            span.className = "ob-movement-opaque";
+            span.textContent = mv.label;
+            li.append(span);
+          }
+          li.append(` — ${mv.setCount} set${mv.setCount === 1 ? "" : "s"}`);
+          list.append(li);
+        }
+        summaryEl.append(subhead, list);
+      }
+
+      // Weekly activity sparkline. Rendered after the card is visible so it can be sized
+      // from the real container width.
+      const { points, bucket, metric } = summary.weekly;
+      summaryEl.hidden = false;
+      if (points.length > 0 && points.some((p) => p.value > 0)) {
+        const caption = document.createElement("p");
+        caption.className = "ob-summary-subhead";
+        caption.textContent = `${SPARK_METRIC_LABEL[metric]} per ${bucket}`;
+        const wrap = document.createElement("div");
+        wrap.className = "ob-spark-wrap";
+        summaryEl.append(caption, wrap);
+        const width = Math.max(160, Math.min(wrap.clientWidth || 600, 720));
+        wrap.append(buildSparkline(points, bucket, metric, width));
+        if (points.length > 1) {
+          const labels = document.createElement("div");
+          labels.className = "ob-spark-labels";
+          for (const iso of [points[0].bucketStart, points[points.length - 1].bucketStart]) {
+            const span = document.createElement("span");
+            span.textContent = new Date(`${iso}T00:00:00Z`).toLocaleDateString(undefined, {
+              month: "short", year: "numeric", timeZone: "UTC",
+            });
+            labels.append(span);
+          }
+          wrap.append(labels);
+        }
+      }
+    }
+
+    // --- "Download as Strong CSV" (strength sources) ------------------------------------
+    // The app-switch story: Strong-format CSV is also what Hevy accepts as its import
+    // format, so this one file is the practical "move your history into Strong or Hevy"
+    // path. mapOpenBodyToStrong runs non-strict: it emits everything Strong's CSV can hold
+    // and reports every material loss, which we surface honestly below the buttons.
+
+    const OMISSIONS_SHOWN = 200;
+
+    function renderStrongInfo(strong: ToStrongResult) {
+      strongInfoEl.replaceChildren();
+
+      const intro = document.createElement("p");
+      intro.className = "ob-strong-note";
+      intro.textContent =
+        "The Strong CSV is also the format Hevy imports — one file to move your history " +
+        "into either app.";
+      strongInfoEl.append(intro);
+
+      if (strong.omissions.length === 0) {
+        const ok = document.createElement("p");
+        ok.className = "ob-strong-note";
+        ok.textContent = "Everything in this file fits Strong's format — nothing was left out.";
+        strongInfoEl.append(ok);
+      } else {
+        const details = document.createElement("details");
+        details.className = "ob-omissions";
+        const summary = document.createElement("summary");
+        const n = strong.omissions.length;
+        summary.textContent =
+          `${n} detail${n === 1 ? "" : "s"} Strong's format can't represent ` +
+          `${n === 1 ? "was" : "were"} left out`;
+        details.append(summary);
+
+        const list = document.createElement("ul");
+        list.className = "ob-omissions-list";
+        for (const om of strong.omissions.slice(0, OMISSIONS_SHOWN)) {
+          const li = document.createElement("li");
+          const code = document.createElement("code");
+          code.textContent = om.field ? `${om.recordId} · ${om.field}` : om.recordId;
+          li.append(code, ` — ${om.reason}`);
+          list.append(li);
+        }
+        if (n > OMISSIONS_SHOWN) {
+          const li = document.createElement("li");
+          li.textContent = `…and ${n - OMISSIONS_SHOWN} more.`;
+          list.append(li);
+        }
+        const note = document.createElement("p");
+        note.className = "ob-strong-note";
+        note.textContent =
+          "None of this is lost for good: the OpenBody JSON download is the full-fidelity " +
+          "version — this is just what Strong's CSV columns can hold.";
+        details.append(list, note);
+        strongInfoEl.append(details);
+      }
+      strongInfoEl.hidden = false;
+    }
+
+    // Honest note instead of a dead button when the converted file has no strength sets.
+    function renderStrongUnavailable() {
+      strongInfoEl.replaceChildren();
+      const p = document.createElement("p");
+      p.className = "ob-strong-note";
+      p.textContent =
+        "No Strong CSV for this one: Strong's format is a lifting log (sets of reps, " +
+        "weight, duration, distance), so these sessions have no faithful home there. The " +
+        "OpenBody JSON keeps everything.";
+      strongInfoEl.append(p);
+      strongInfoEl.hidden = false;
     }
 
     // Exercise-identity resolution summary (SPEC §6): the mappers now climb the matching
@@ -299,36 +590,11 @@ import { Aside } from "@astrojs/starlight/components";
     }
 
     // Endurance sources (Apple Health, Strava) don't have sets/reps to preview or exercise
-    // names to resolve — show a sessions/disciplines/totals rollup instead, plus per-session
-    // cards. Still 100% client-side.
+    // names to resolve — the rollup lives in the unified summary card above; this renders
+    // just the per-session cards. Still 100% client-side.
     const ENDURANCE_PREVIEW_CAP = 50;
-    function renderEnduranceSummary(records: any[]) {
+    function renderEndurancePreview(records: any[]) {
       const summary = summarizeEndurance(records);
-
-      const title = document.createElement("p");
-      title.className = "ob-resolution-title";
-      const bits: string[] = [`${summary.sessionCount} session${summary.sessionCount === 1 ? "" : "s"}`];
-      if (summary.totalKm > 0) bits.push(`${summary.totalKm.toFixed(summary.totalKm >= 100 ? 0 : 1)} km`);
-      if (summary.totalSeconds > 0) bits.push(formatDuration(summary.totalSeconds));
-      title.textContent = bits.join(" · ");
-
-      const list = document.createElement("ul");
-      list.className = "ob-resolution-list";
-      if (summary.disciplines.length > 0) {
-        const li = document.createElement("li");
-        li.textContent =
-          "Disciplines: " + summary.disciplines.map(([d, n]) => `${d} ×${n}`).join(", ");
-        list.append(li);
-      }
-      if (summary.measurementCount > 0) {
-        const li = document.createElement("li");
-        li.textContent =
-          `${summary.measurementCount} measurement${summary.measurementCount === 1 ? "" : "s"}: ` +
-          summary.measurementsByType.map(([t, n]) => `${t} ×${n}`).join(", ");
-        list.append(li);
-      }
-      resolutionEl.replaceChildren(title, ...(list.childElementCount ? [list] : []));
-      resolutionEl.hidden = false;
 
       previewEl.replaceChildren();
       for (const session of summary.sessions.slice(0, ENDURANCE_PREVIEW_CAP)) {
@@ -405,11 +671,18 @@ import { Aside } from "@astrojs/starlight/components";
         lastRecords = records;
         lastBaseName = file.name.replace(/\.(csv|xml)$/i, "") || "openbody-export";
 
+        renderSummary(summarizeUnified(records as any, SOURCE_KIND[source]), SOURCE_KIND[source]);
         if (SOURCE_KIND[source] === "strength") {
           renderResolution(records);
           renderPreview(records);
+          // Second download: the same history as a Strong-importable CSV (non-strict — the
+          // omissions report says exactly what the format couldn't hold).
+          lastStrong = mapOpenBodyToStrong(records as any);
+          renderStrongInfo(lastStrong);
+          downloadStrongBtn.hidden = false;
         } else {
-          renderEnduranceSummary(records);
+          renderEndurancePreview(records);
+          renderStrongUnavailable();
         }
 
         const measurementCount = records.length - sessionCount;
@@ -465,6 +738,19 @@ import { Aside } from "@astrojs/starlight/components";
       URL.revokeObjectURL(url);
     });
 
+    downloadStrongBtn?.addEventListener("click", () => {
+      if (!lastStrong) return;
+      const blob = new Blob([lastStrong.csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${lastBaseName}.strong.csv`;
+      document.body.append(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    });
+
     emailDismiss?.addEventListener("click", () => {
       emailCapture.hidden = true;
     });
@@ -505,7 +791,10 @@ import { Aside } from "@astrojs/starlight/components";
     });
   </script>
 
-  <style>
+  {/* is:global (with page-unique ob- prefixes) because most of this UI is created by the
+      client script at runtime: Astro's default scoping only tags elements that exist in
+      the template, so scoped selectors never match JS-rendered nodes. */}
+  <style is:global>
     .ob-lede {
       font-size: var(--sl-text-lg);
       max-width: 60ch;
@@ -619,6 +908,115 @@ import { Aside } from "@astrojs/starlight/components";
     }
     .ob-resolution-kept {
       color: var(--sl-color-gray-3);
+    }
+
+    /* Unified post-conversion summary card. */
+    .ob-summary {
+      border: 1px solid var(--sl-color-hairline);
+      border-radius: 0.5rem;
+      padding: 1rem 1.25rem;
+      background-color: var(--sl-color-bg-nav);
+    }
+    .ob-summary-title {
+      margin: 0;
+      font-weight: 600;
+      font-size: var(--sl-text-lg);
+    }
+    .ob-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      margin-top: 0.6rem;
+    }
+    .ob-chip {
+      font-size: var(--sl-text-xs);
+      font-weight: 600;
+      padding: 0.15rem 0.6rem;
+      border-radius: 999px;
+      border: 1px solid color-mix(in srgb, var(--sl-color-accent) 35%, transparent);
+      background-color: color-mix(in srgb, var(--sl-color-accent) 8%, transparent);
+      color: var(--sl-color-text);
+    }
+    .ob-summary-facts {
+      margin: 0.6rem 0 0;
+      font-size: var(--sl-text-sm);
+      color: var(--sl-color-gray-2);
+    }
+    .ob-summary-subhead {
+      margin: 1rem 0 0.3rem;
+      font-size: var(--sl-text-sm);
+      font-weight: 600;
+      color: var(--sl-color-gray-3);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .ob-movements {
+      margin: 0;
+      padding-left: 1.4rem;
+      font-size: var(--sl-text-sm);
+      color: var(--sl-color-gray-2);
+    }
+    .ob-movements li {
+      margin: 0.1rem 0;
+    }
+
+    /* Weekly-activity sparkline: single accent, hairline baseline, no axes. */
+    .ob-spark-wrap {
+      max-width: 45rem;
+    }
+    .ob-spark {
+      display: block;
+      max-width: 100%;
+    }
+    .ob-spark rect {
+      fill: var(--sl-color-accent);
+    }
+    .ob-spark-baseline {
+      stroke: var(--sl-color-hairline);
+      stroke-width: 1;
+    }
+    .ob-spark-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: var(--sl-text-xs);
+      color: var(--sl-color-gray-3);
+      margin-top: 0.15rem;
+    }
+
+    .ob-downloads {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+    .ob-downloads:not(:has(button:not([hidden]))) {
+      display: none;
+    }
+
+    /* Strong-CSV fidelity notes + omissions expander. */
+    .ob-strong-info {
+      margin-top: -0.25rem;
+    }
+    .ob-strong-note {
+      margin: 0 0 0.35rem;
+      font-size: var(--sl-text-sm);
+      color: var(--sl-color-gray-3);
+      max-width: 65ch;
+    }
+    .ob-omissions {
+      font-size: var(--sl-text-sm);
+      color: var(--sl-color-gray-2);
+    }
+    .ob-omissions summary {
+      cursor: pointer;
+      font-weight: 600;
+      color: var(--sl-color-gray-2);
+    }
+    .ob-omissions-list {
+      margin: 0.5rem 0;
+      padding-left: 1.25rem;
+    }
+    .ob-omissions-list li {
+      margin: 0.15rem 0;
     }
 
     .ob-preview {
