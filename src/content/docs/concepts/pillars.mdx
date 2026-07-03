@@ -60,8 +60,10 @@ Key ideas:
   performed one carries `performance`; a record may carry both. Separate records link via
   the `performedFrom` envelope link.
 - **Targets are polymorphic.** A metric may be a scalar or a `Target` — `absolute`,
-  `range`, `relativeToThreshold` (e.g. 80% of 1RM), or `stopCondition` (e.g. `to_failure`,
-  `to_rpe`). See [canonicalization](/concepts/canonicalization/).
+  `range`, `relativeToThreshold` (e.g. 80% of 1RM), `stopCondition` (e.g. `to_failure`,
+  `to_rpe`), or `ramp` (a directional progression, e.g. a warmup ramping 50→75 %FTP;
+  legal only on `load.value` and `Intensity.value`). See
+  [canonicalization](/concepts/canonicalization/).
 - **The "how hard" axis has three distinct homes** (§5.13), so a value never has two
   encodings: **resistance** → `load` (100 kg, 80 %1RM, a band, machine level 7);
   **intensity** → `intensity[]` of `Intensity`, a target on a non-resistance dimension

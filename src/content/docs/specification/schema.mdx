@@ -22,10 +22,12 @@ The root `$ref` is a `oneOf` over the addressable record kinds, discriminated by
 > `tombstone`, `Measurement`, `Program`, `Session`, `Block`, `Exercise`, `WorkUnit`,
 > `ThresholdProfile`, `StatusPeriod`
 
-plus the shared `$defs` for value objects — `Target`, `scalarOrTarget`, `Load`,
-`EffortLoad`, `Intensity`, `Progression`, `phasePattern`, `Descriptors`, `modifiers`,
-`outcome`, `ExerciseRef`, `provenance`, `envelope`, `prescription`, `performance`, `Rep`, and
-the numeric primitives (`fixedPoint`, `number`).
+plus the shared `$defs` for value objects — including `Target`, `scalarOrTarget`,
+`TargetWithRamp`, `scalarOrTargetWithRamp` (the `load.value`/`Intensity.value` superset that
+adds the `ramp` branch), `Load`, `EffortLoad`, `Intensity`, `Progression`, `phasePattern`,
+`Descriptors`, `modifiers`, `outcome`, `ExerciseRef`, `Participant`, `sides`, `link`,
+`mediaItem`, `extension`, `provenance`, `envelope`, `prescription`, `performance`, `Rep`, and
+the primitives (`fixedPoint`, `number`, `id`, `timestamp`).
 
 Open registry-backed tokens (§5.9) are typed `string`; genuinely closed enums are
 constrained to their value set.
@@ -41,10 +43,11 @@ Several rules are context-dependent or normalization-level and are enforced by a
 - a `WorkUnit`'s `exerciseRef` is mutually exclusive with an enclosing `Exercise` (§5.5);
 - `scoring`↔metric agreement (§5.5); `sets` only in a planned `prescription` (§5.5);
 - `algorithm` required when `method` is `algorithm` (recommended, not required, when only `derivedFrom` is present) (§7.4);
-- and the §8.3 canonicalization/equivalence procedure.
+- and the §8.3 shorthand equivalences (two encodings of the same meaning **MUST NOT** be treated as different data).
 
-Validate **wire** records, not the §8.3 canonical form (that is a comparison artifact, not
-the binding).
+Validate **wire** records, not the canonical form the conformance suite's
+[equivalence method](/concepts/canonicalization/) produces (that is a comparison artifact of
+the test tooling, not the binding).
 </Aside>
 
 ## Using it
@@ -53,6 +56,8 @@ In the reference implementation, `validate(record)` runs this schema via ajv **p
 semantic pass** covering several of the context-dependent rules above (e.g. §5.2 `Program`
 phase cross-checks, §5.5 `scoring`↔metric agreement and the `sets`/`performance` mutual
 exclusion, §5.12 `Load.unit` conditionality, §7.5 tombstone strictness). See
-[Getting started](/getting-started/#validate-a-record). Rules the pass does not cover —
-notably the §8.3 canonicalization procedure itself — remain the implementer's
-responsibility.
+[Getting started](/getting-started/#validate-a-record). Rules the pass does not cover remain
+the implementer's responsibility. The [canonicalization algorithm](/concepts/canonicalization/)
+is **not** among them: per SPEC §8.3 an implementation is judged by its inputs and outputs
+against the published vectors — the test tooling and reference implementation implement the
+algorithm as the equivalence oracle, and you are not required to.
