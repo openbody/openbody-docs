@@ -8,9 +8,11 @@
 // same header/sidebar/theme chrome as the rest of the site while letting the body be
 // hand-written HTML + a vanilla client-side `<script>` (no UI framework needed or installed).
 //
-// Parsing uses the real @openbody/openbody-ts package directly (mapHevy) — no vendored
-// copy needed: openbody-ts's validate.ts no longer pulls in node:fs/path/url at module
-// load, so the package is safe to import from browser-bundled code.
+// Parsing uses the real @openbody/openbody-ts package directly (mapHevy, mapStrong,
+// mapAppleHealth, mapStrava) — no vendored copy needed: openbody-ts's validate.ts no
+// longer pulls in node:fs/path/url at module load, so the package is safe to import from
+// browser-bundled code. Source detection + the thin activities.csv → mapStrava adapter
+// live in src/components/convert-sources.ts.
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
 import { Aside } from "@astrojs/starlight/components";
 ---
@@ -19,7 +21,7 @@ import { Aside } from "@astrojs/starlight/components";
   frontmatter={{
     title: "Convert your workout data",
     description:
-      "Upload a Hevy CSV export and see it parsed into portable OpenBody JSON, entirely in your browser. No signup, no server, no upload.",
+      "Upload a Hevy, Strong, Apple Health, or Strava export and see it parsed into portable OpenBody JSON, entirely in your browser. No signup, no server, no upload.",
     tableOfContents: false,
   }}
 >
@@ -32,30 +34,73 @@ import { Aside } from "@astrojs/starlight/components";
     uploaded anywhere — the parsing code runs on your machine, not a server.
   </p>
 
-  <Aside type="caution" title="Early, experimental, one source format">
+  <Aside type="caution" title="Early, experimental">
     OpenBody itself is a <strong>pre-v1.0 draft standard</strong> (see the
-    <a href="/specification/">specification</a>), and this converter is a first pass at a demo
-    tool, not a finished product. It currently reads <strong>one</strong> source format — a
-    <strong>Hevy</strong> CSV export — and the mapping it uses hasn't been through the same
-    scrutiny as the reference mappers in
-    <a href="https://github.com/openbody/openbody-ts">openbody-ts</a>. More source apps
-    (Strong, Strava, Apple Health, FIT) are planned; see the
-    <a href="/mapping/">mapping guides</a> for the mappings that already exist in the
+    <a href="/specification/">specification</a>), and this converter is a demo tool, not a
+    finished product. It reads the four export formats below via the reference mappers in
+    <a href="https://github.com/openbody/openbody-ts">openbody-ts</a>; each card says
+    exactly what is and isn't read. More formats (FIT files, per-activity GPX) are planned;
+    see the <a href="/mapping/">mapping guides</a> for the mappings that exist in the
     reference implementation.
   </Aside>
 
+  <h2>Supported exports</h2>
+  <div class="ob-source-grid">
+    <div class="ob-source-card">
+      <p class="ob-source-name">Hevy — workout CSV</p>
+      <p class="ob-source-how">Hevy app → Profile → Settings → Export Data.</p>
+      <p class="ob-source-what">
+        Full lifting history: workouts, exercises, sets, reps, load, RPE, supersets.
+        Exercise names are matched to canonical OpenBody movements where known.
+      </p>
+    </div>
+    <div class="ob-source-card">
+      <p class="ob-source-name">Strong — workout CSV</p>
+      <p class="ob-source-how">Strong app → Profile → Settings → Export Strong Data.</p>
+      <p class="ob-source-what">
+        Workouts, exercises, sets, weight, reps, plus distance/time sets. Same canonical
+        exercise matching as Hevy.
+      </p>
+    </div>
+    <div class="ob-source-card">
+      <p class="ob-source-name">Apple Health — export.xml</p>
+      <p class="ob-source-how">
+        Health app → profile picture → Export All Health Data, then <strong>unzip</strong>
+        the export.zip and pick <code>export.xml</code>.
+      </p>
+      <p class="ob-source-what">
+        Workouts become sessions (duration, distance, energy); heart rate, step count, body
+        mass, and sleep-stage records become measurements. Per-workout GPS routes and other
+        record types aren't read yet. Big exports can take a moment — it all runs locally.
+      </p>
+    </div>
+    <div class="ob-source-card">
+      <p class="ob-source-name">Strava — activities.csv</p>
+      <p class="ob-source-how">
+        strava.com → Settings → My Account → Download or Delete Your Account → Download
+        Request, then pick <code>activities.csv</code> from the archive.
+      </p>
+      <p class="ob-source-what">
+        Summary per activity only: sport, date, moving/elapsed time, distance. The GPS,
+        heart-rate, and power streams (the GPX/FIT files in the same archive) are coming
+        later.
+      </p>
+    </div>
+  </div>
+
   <h2>How it works</h2>
   <ol>
-    <li>Export your workout history from Hevy as CSV (Hevy app → Profile → Export Data).</li>
-    <li>Drop the file below. Parsing happens entirely in your browser via JavaScript — the
-      file is never sent anywhere.</li>
+    <li>Export your data from one of the apps above.</li>
+    <li>Drop the file below — the format is detected automatically. Parsing happens entirely
+      in your browser via JavaScript — the file is never sent anywhere.</li>
     <li>Review the human-readable preview, then download the portable OpenBody JSON.</li>
   </ol>
 
   <div id="convert-tool" class="ob-tool">
     <label id="drop-zone" for="file-input" class="ob-dropzone">
-      <input id="file-input" type="file" accept=".csv,text/csv" />
-      <span class="ob-dropzone-title">Choose a Hevy CSV export, or drag it here</span>
+      <input id="file-input" type="file" accept=".csv,.xml,text/csv,text/xml,application/xml" />
+      <span class="ob-dropzone-title">Choose an export file, or drag it here</span>
+      <span class="ob-dropzone-sub">Hevy CSV · Strong CSV · Apple Health export.xml · Strava activities.csv</span>
       <span class="ob-dropzone-sub">Nothing is uploaded — parsing happens in your browser.</span>
     </label>
 
@@ -95,16 +140,27 @@ import { Aside } from "@astrojs/starlight/components";
 
   <h2>What is "OpenBody JSON"?</h2>
   <p>
-    The downloaded file is an array of OpenBody <code>Session</code> records — the same wire
-    format documented in the <a href="/mapping/hevy/">Hevy mapping guide</a> and validated
-    against the <a href="/specification/schema/">JSON Schema</a>. It's a plain, inspectable
-    JSON file you own: move it between tools, check it into your own backup, or feed it to
-    anything else that speaks OpenBody.
+    The downloaded file is an array of OpenBody records — <code>Session</code> records for
+    workouts, plus <code>Measurement</code> records for Apple Health data like heart rate
+    and sleep stages. It's the same wire format documented in the
+    <a href="/mapping/">mapping guides</a> and validated against the
+    <a href="/specification/schema/">JSON Schema</a>: a plain, inspectable JSON file you
+    own. Move it between tools, check it into your own backup, or feed it to anything else
+    that speaks OpenBody.
   </p>
 
   <script>
-    import { mapHevy } from "@openbody/openbody-ts";
+    import { mapHevy, mapStrong, mapAppleHealth } from "@openbody/openbody-ts";
     import { summarizeSessions, formatSetLine, type SessionSummary } from "../../lib/hevy/summarize";
+    import {
+      detectSource,
+      mapStravaActivitiesCsv,
+      summarizeEndurance,
+      formatDuration,
+      SOURCE_LABEL,
+      SOURCE_KIND,
+      type SourceId,
+    } from "../../components/convert-sources";
 
     const fileInput = document.getElementById("file-input") as HTMLInputElement;
     const dropZone = document.getElementById("drop-zone") as HTMLElement;
@@ -242,23 +298,127 @@ import { Aside } from "@astrojs/starlight/components";
       previewEl.hidden = false;
     }
 
+    // Endurance sources (Apple Health, Strava) don't have sets/reps to preview or exercise
+    // names to resolve — show a sessions/disciplines/totals rollup instead, plus per-session
+    // cards. Still 100% client-side.
+    const ENDURANCE_PREVIEW_CAP = 50;
+    function renderEnduranceSummary(records: any[]) {
+      const summary = summarizeEndurance(records);
+
+      const title = document.createElement("p");
+      title.className = "ob-resolution-title";
+      const bits: string[] = [`${summary.sessionCount} session${summary.sessionCount === 1 ? "" : "s"}`];
+      if (summary.totalKm > 0) bits.push(`${summary.totalKm.toFixed(summary.totalKm >= 100 ? 0 : 1)} km`);
+      if (summary.totalSeconds > 0) bits.push(formatDuration(summary.totalSeconds));
+      title.textContent = bits.join(" · ");
+
+      const list = document.createElement("ul");
+      list.className = "ob-resolution-list";
+      if (summary.disciplines.length > 0) {
+        const li = document.createElement("li");
+        li.textContent =
+          "Disciplines: " + summary.disciplines.map(([d, n]) => `${d} ×${n}`).join(", ");
+        list.append(li);
+      }
+      if (summary.measurementCount > 0) {
+        const li = document.createElement("li");
+        li.textContent =
+          `${summary.measurementCount} measurement${summary.measurementCount === 1 ? "" : "s"}: ` +
+          summary.measurementsByType.map(([t, n]) => `${t} ×${n}`).join(", ");
+        list.append(li);
+      }
+      resolutionEl.replaceChildren(title, ...(list.childElementCount ? [list] : []));
+      resolutionEl.hidden = false;
+
+      previewEl.replaceChildren();
+      for (const session of summary.sessions.slice(0, ENDURANCE_PREVIEW_CAP)) {
+        const card = document.createElement("article");
+        card.className = "ob-session-card";
+        const heading = document.createElement("h3");
+        heading.textContent = session.name;
+        const dateEl = document.createElement("p");
+        dateEl.className = "ob-session-date";
+        dateEl.textContent = session.dateLabel;
+        const partsEl = document.createElement("p");
+        partsEl.className = "ob-session-parts";
+        partsEl.textContent = session.parts.join(" · ");
+        card.append(heading, dateEl, partsEl);
+        previewEl.append(card);
+      }
+      if (summary.sessions.length > ENDURANCE_PREVIEW_CAP) {
+        const more = document.createElement("p");
+        more.className = "ob-preview-more";
+        more.textContent =
+          `…and ${summary.sessions.length - ENDURANCE_PREVIEW_CAP} more sessions ` +
+          `(all included in the download).`;
+        previewEl.append(more);
+      }
+      previewEl.hidden = false;
+    }
+
+    const SUPPORTED_HINT =
+      "Supported: Hevy CSV, Strong CSV, Apple Health export.xml, Strava activities.csv.";
+
+    function mapForSource(source: SourceId, text: string) {
+      switch (source) {
+        case "hevy": return mapHevy(text);
+        case "strong": return mapStrong(text);
+        case "apple-health": return mapAppleHealth(text);
+        case "strava": return mapStravaActivitiesCsv(text);
+      }
+    }
+
     async function handleFile(file: File) {
       resetPreview();
       emailCapture.hidden = true;
       setStatus(`Reading ${file.name}…`, "info");
       try {
+        // ZIP (Apple Health export.zip, Strava archive) — ask for the inner file instead of
+        // shipping an unzip library to the browser.
+        const magic = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+        if (magic[0] === 0x50 && magic[1] === 0x4b) {
+          setStatus(
+            "That's a ZIP archive. Unzip it first, then drop the file inside: export.xml " +
+              "for Apple Health, activities.csv for Strava.",
+            "error",
+          );
+          return;
+        }
+
         const text = await file.text();
-        const records = mapHevy(text);
-        if (!records.length) {
-          setStatus("No workouts found in that file — is it an unmodified Hevy CSV export?", "error");
+        const source = detectSource(file.name, text);
+        if (!source) {
+          setStatus(`Couldn't recognize that file as a supported export. ${SUPPORTED_HINT}`, "error");
+          return;
+        }
+        setStatus(`Detected ${SOURCE_LABEL[source]} — parsing…`, "info");
+
+        const records = mapForSource(source, text);
+        const sessionCount = records.filter((r: any) => r.recordType === "Session").length;
+        if (!records.length || (SOURCE_KIND[source] === "strength" && sessionCount === 0)) {
+          setStatus(
+            `No workouts found in that file — is it an unmodified ${SOURCE_LABEL[source]} export?`,
+            "error",
+          );
           return;
         }
         lastRecords = records;
-        lastBaseName = file.name.replace(/\.csv$/i, "") || "openbody-export";
-        renderResolution(records);
-        renderPreview(records);
+        lastBaseName = file.name.replace(/\.(csv|xml)$/i, "") || "openbody-export";
+
+        if (SOURCE_KIND[source] === "strength") {
+          renderResolution(records);
+          renderPreview(records);
+        } else {
+          renderEnduranceSummary(records);
+        }
+
+        const measurementCount = records.length - sessionCount;
+        const parsedBits = [`${sessionCount} session${sessionCount === 1 ? "" : "s"}`];
+        if (measurementCount > 0) {
+          parsedBits.push(`${measurementCount} measurement${measurementCount === 1 ? "" : "s"}`);
+        }
         setStatus(
-          `Parsed ${records.length} workout${records.length === 1 ? "" : "s"} from ${file.name}. ` +
+          `${SOURCE_LABEL[source]}: parsed ${parsedBits.join(" and ")} from ${file.name}. ` +
             `Nothing left your browser.`,
           "success",
         );
@@ -268,7 +428,7 @@ import { Aside } from "@astrojs/starlight/components";
         console.error("[convert-tool] parse failed:", err);
         setStatus(
           `Couldn't parse that file (${err instanceof Error ? err.message : String(err)}). ` +
-            `Make sure it's an unmodified Hevy CSV export.`,
+            `Make sure it's an unmodified export. ${SUPPORTED_HINT}`,
           "error",
         );
       }
@@ -356,6 +516,33 @@ import { Aside } from "@astrojs/starlight/components";
       display: flex;
       flex-direction: column;
       gap: 1rem;
+    }
+
+    .ob-source-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .ob-source-card {
+      border: 1px solid var(--sl-color-hairline);
+      border-radius: 0.5rem;
+      padding: 1rem 1.25rem;
+      background-color: var(--sl-color-bg-nav);
+    }
+    .ob-source-name {
+      margin: 0 0 0.35rem;
+      font-weight: 600;
+    }
+    .ob-source-how {
+      margin: 0 0 0.5rem;
+      font-size: var(--sl-text-sm);
+      color: var(--sl-color-gray-3);
+    }
+    .ob-source-what {
+      margin: 0;
+      font-size: var(--sl-text-sm);
+      color: var(--sl-color-gray-2);
     }
 
     .ob-dropzone {
@@ -452,6 +639,17 @@ import { Aside } from "@astrojs/starlight/components";
       margin: 0.15rem 0 0.75rem;
       font-size: var(--sl-text-sm);
       color: var(--sl-color-gray-3);
+    }
+    .ob-session-parts {
+      margin: 0;
+      font-size: var(--sl-text-sm);
+      color: var(--sl-color-gray-2);
+    }
+    .ob-preview-more {
+      margin: 0;
+      font-size: var(--sl-text-sm);
+      color: var(--sl-color-gray-3);
+      font-style: italic;
     }
     .ob-exercise-list {
       display: flex;
