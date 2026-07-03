@@ -24,10 +24,15 @@ export default defineConfig({
       sidebar: [
         { label: "Home", link: "/" },
         {
-          label: "Start here",
+          label: "Your data",
           items: [
-            { label: "OpenBody in five minutes", link: "/five-minutes/" },
             { label: "Convert your data", link: "/tools/convert/", badge: { text: "beta", variant: "caution" } },
+            { label: "OpenBody in five minutes", link: "/five-minutes/" },
+          ],
+        },
+        {
+          label: "Build with OpenBody",
+          items: [
             { label: "Build on OpenBody", link: "/build/" },
             { label: "Install & validate a record", link: "/getting-started/" },
             { label: "Run the conformance vectors", link: "/getting-started/vectors/" },
