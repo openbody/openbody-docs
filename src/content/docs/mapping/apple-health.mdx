@@ -32,10 +32,10 @@ A discrete heart-rate sample → a `quantity` `Measurement` (`count/min` → UCU
   "recordType": "Measurement",
   "subject": "subj-001",
   "type": "heart_rate",
-  "quantity": 64,
+  "quantity": 152,
   "unit": "/min",
-  "startTime": "2026-06-20T07:00:00Z",
-  "endTime": "2026-06-20T07:00:00Z",
+  "startTime": "2026-06-20T06:30:00Z",
+  "endTime": "2026-06-20T06:30:00Z",
   "provenance": { "method": "sensor", "sourceApp": "apple", "device": { "manufacturer": "apple", "model": "Apple Watch" } }
 }
 ```
@@ -44,13 +44,13 @@ A sleep stage → a `category` `Measurement` over its interval:
 
 ```json
 {
-  "id": "apple-sleep-7",
+  "id": "apple-sleep-5",
   "recordType": "Measurement",
   "subject": "subj-001",
   "type": "sleep_stage",
   "category": "asleep_deep",
-  "startTime": "2026-06-20T02:10:00Z",
-  "endTime": "2026-06-20T02:48:00Z",
+  "startTime": "2026-06-20T01:30:00Z",
+  "endTime": "2026-06-20T02:15:00Z",
   "provenance": { "method": "sensor", "sourceApp": "apple", "device": { "manufacturer": "apple", "model": "Apple Watch" } }
 }
 ```
@@ -59,7 +59,7 @@ An `HKWorkout` → a `Session` with a `continuous` `WorkUnit`:
 
 ```json
 {
-  "id": "apple-workout-12",
+  "id": "apple-workout-6",
   "recordType": "Session",
   "subject": "subj-001",
   "disciplines": ["running"],
@@ -69,11 +69,11 @@ An `HKWorkout` → a `Session` with a `continuous` `WorkUnit`:
   "provenance": { "method": "sensor", "sourceApp": "apple", "device": { "manufacturer": "apple", "model": "Apple Watch" } },
   "workUnits": [
     {
-      "id": "apple-workout-12-wu",
+      "id": "apple-workout-6-wu",
       "recordType": "WorkUnit",
       "scoring": "continuous",
       "performance": {
-        "distance": { "absolute": { "value": 10.0, "unit": "km" } },
+        "distance": { "absolute": { "value": 10, "unit": "km" } },
         "energy": { "absolute": { "value": 520, "unit": "kcal" } },
         "time": { "absolute": { "value": 2520, "unit": "s" } }
       },
@@ -82,6 +82,11 @@ An `HKWorkout` → a `Session` with a `continuous` `WorkUnit`:
   ]
 }
 ```
+
+The `measuredBy` link is **time-windowed**: a workout links only the heart-rate records
+whose interval falls inside *its own* `startTime`/`endTime` window (here `apple-q-1`, taken
+at `06:30`, inside the `06:30–07:12` run) — linking every `<Record>` in the export to every
+workout would fabricate associations (§7.2).
 
 <Aside type="note" title="Lazy type tokens (§4.4)">
 Known HealthKit identifiers resolve to canonical tokens (`heart_rate`, `step_count`,

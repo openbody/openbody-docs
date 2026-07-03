@@ -14,8 +14,8 @@ import { Aside } from '@astrojs/starlight/components';
 
 | Strong CSV | OpenBody |
 |---|---|
-| a workout (rows sharing `Date` + `Workout Name`) | `Session` (`disciplines: ["strength"]`, `name` ← `Workout Name`) |
-| consecutive rows for one `Exercise Name` | `Exercise` (`exerciseRef: { opaque: <name> }`) |
+| a workout (rows sharing `Date` + `Workout Name`) | `Session` (`disciplines: ["strength"]`, `name` ← `Workout Name`, `clientRecordId` ← the natural key) |
+| consecutive rows for one `Exercise Name` | `Exercise` (`exerciseRef`: canonical registry `id` where the crosswalk resolves the name, plus the lossless `opaque` original) |
 | one set row | `WorkUnit` (`scoring` from `Reps`/`Distance`/`Seconds`) |
 | `Weight` | `performance.load` (`unit: "kg"`, `basis: "marked_weight"`) |
 | `Reps` / `Distance` / `Seconds` | `performance.reps` / `.distance` (m) / `.time` (s) |
@@ -34,22 +34,23 @@ Date,Workout Name,Duration,Exercise Name,Set Order,Weight,Reps,Distance,Seconds,
 
 ```json
 {
-  "id": "strong-w1",
+  "id": "strong-w-87ab88ae",
   "recordType": "Session",
   "subject": "subj-001",
-  "name": "Push Day",
+  "clientRecordId": "2025-12-20 18:00:00|Push Day",
   "disciplines": ["strength"],
   "startTime": "2025-12-20T18:00:00Z",
   "endTime": "2025-12-20T19:00:00Z",
+  "name": "Push Day",
   "extension": { "io.strong.export": { "workoutNo": "1" } },
   "exercises": [
     {
-      "id": "strong-w1-ex0",
+      "id": "strong-w-87ab88ae-ex0",
       "recordType": "Exercise",
-      "exerciseRef": { "opaque": "Bench Press (Barbell)" },
+      "exerciseRef": { "id": "bench-press.barbell.flat", "opaque": "Bench Press (Barbell)" },
       "workUnits": [
         {
-          "id": "strong-w1-ex0-set0",
+          "id": "strong-w-87ab88ae-ex0-set0",
           "recordType": "WorkUnit",
           "scoring": "reps",
           "performance": { "reps": 5, "load": { "value": 80, "unit": "kg", "basis": "marked_weight" } }
@@ -57,12 +58,12 @@ Date,Workout Name,Duration,Exercise Name,Set Order,Weight,Reps,Distance,Seconds,
       ]
     },
     {
-      "id": "strong-w1-ex1",
+      "id": "strong-w-87ab88ae-ex1",
       "recordType": "Exercise",
-      "exerciseRef": { "opaque": "Plank" },
+      "exerciseRef": { "id": "plank", "opaque": "Plank" },
       "workUnits": [
         {
-          "id": "strong-w1-ex1-set0",
+          "id": "strong-w-87ab88ae-ex1-set0",
           "recordType": "WorkUnit",
           "scoring": "time",
           "performance": { "time": 60 },
@@ -76,12 +77,21 @@ Date,Workout Name,Duration,Exercise Name,Set Order,Weight,Reps,Distance,Seconds,
 
 ## Notes
 
-- **`Duration`** (seconds) sets `endTime = startTime + Duration`. The `Date` is parsed as
-  UTC.
+- **Stable ids.** The export has no workout id of its own, so the natural key
+  (`Date|Workout Name`) becomes `clientRecordId` (§7.1) and a **content hash** of it the
+  record id — positional numbering would renumber everything when one more workout is
+  exported, defeating dedup.
+- **`Duration`** (seconds) sets `endTime = startTime + Duration`.
+- **Timestamps.** Strong's `Date` is wall-clock with no offset; the mapper stamps it with
+  the optional `utcOffset` option (default `"Z"`), never the machine's local timezone —
+  the same bytes map to the same records everywhere.
 - **App-specific residue** (`Workout No`) has no canonical home, so it goes to a **namespaced
   extension** (`io.strong.export`) rather than being dropped — the canonical-plus-residue
   principle (§10.1).
 - **Mixed scoring per exercise** works: a `Plank` row (`Seconds: 60`) becomes a
   `time`-scored `WorkUnit`; a distance row becomes `distance`-scored.
-- Exercise identity resolves to canonical registry ids where possible, with the `opaque`
-  floor as the lossless fallback — like [Hevy](/mapping/hevy/).
+- Exercise identity resolves to canonical registry ids where the crosswalk covers the name
+  (both names above resolve), keeping the `opaque` original alongside — like
+  [Hevy](/mapping/hevy/).
+- The mirror direction exists too: [`mapOpenBodyToStrong`](/mapping/to-strong/) writes this
+  same CSV shape back out.

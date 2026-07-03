@@ -13,8 +13,8 @@ import { Aside } from '@astrojs/starlight/components';
 
 | Hevy CSV | OpenBody |
 |---|---|
-| a workout (rows sharing `title` + `start_time`) | `Session` (`disciplines: ["strength"]`, `name` ← `title`, `notes` ← `description`) |
-| consecutive rows for one `exercise_title` | `Exercise` (`exerciseRef: { opaque: <title> }`) |
+| a workout (rows sharing `title` + `start_time`) | `Session` (`disciplines: ["strength"]`, `name` ← `title`, `notes` ← `description`, `clientRecordId` ← the natural key) |
+| consecutive rows for one `exercise_title` | `Exercise` (`exerciseRef`: canonical registry `id` where the crosswalk resolves the title, plus the lossless `opaque` original) |
 | one set row | `WorkUnit` (`scoring` from which columns are present) |
 | `set_type` (`normal｜warmup｜drop｜failure`) | `WorkUnit.setRole` (`working｜warmup｜drop｜failure`) |
 | `weight_kg` | `performance.load` (`unit: "kg"`) |
@@ -33,21 +33,22 @@ import { Aside } from '@astrojs/starlight/components';
 
 ```json
 {
-  "id": "hevy-sess-1",
+  "id": "hevy-sess-62f09e1f",
   "recordType": "Session",
   "subject": "subj-001",
+  "clientRecordId": "Morning workout|22 Dec 2025, 08:00",
   "name": "Morning workout",
   "disciplines": ["strength"],
   "startTime": "2025-12-22T08:00:00Z",
   "endTime": "2025-12-22T08:37:00Z",
   "exercises": [
     {
-      "id": "hevy-sess-1-ex0",
+      "id": "hevy-sess-62f09e1f-ex0",
       "recordType": "Exercise",
       "exerciseRef": { "opaque": "Pull Up (Assisted)" },
       "workUnits": [
         {
-          "id": "hevy-sess-1-ex0-set0",
+          "id": "hevy-sess-62f09e1f-ex0-set0",
           "recordType": "WorkUnit",
           "scoring": "reps",
           "setRole": "working",
@@ -71,6 +72,10 @@ Plain machine/weighted lifts use `basis: "marked_weight"`.
 
 ## Notes & edge cases
 
+- **Stable ids.** The export has no workout id of its own, so the natural key
+  (`title|start_time`) becomes `clientRecordId` (§7.1) and a **content hash** of it the
+  record id — positional numbering would renumber everything when one more workout is
+  exported, defeating dedup.
 - **Workout title** maps to the first-class `name` (added in v0.3); the first Hevy mapper
   silently dropped it — a real losslessness bug that dogfooding surfaced.
 - **Supersets force all-blocks.** A `Session` carries **at most one** of
@@ -79,11 +84,16 @@ Plain machine/weighted lifts use `basis: "marked_weight"`.
   grouping superset mates in a `Block` with `grouping: "superset"`.
 - **Scoring** is chosen per set: `reps` if present, else `distance`, else `time` — so plank
   and cardio rows map cleanly alongside strength sets.
-- **Exercise identity**: names that the [registry](/registry/exercises/) covers resolve to
-  canonical ids; anything unresolved keeps the `opaque` floor — lossless either way, per the
+- **Exercise identity**: names that the [registry](/registry/exercises/) crosswalk covers
+  resolve to canonical ids **alongside** the `opaque` original (the fixture's
+  `"Leg Press (Machine)"` becomes `{ "id": "leg-press.machine", "opaque": "Leg Press (Machine)" }`);
+  anything unresolved — like `"Pull Up (Assisted)"` above — keeps the `opaque` floor.
+  Lossless either way, per the
   [matching ladder](/concepts/exercise-identity/#the-matching-ladder).
 
 <Aside type="note">
 Timestamps are normalized to RFC 3339; the Hevy export carries no UTC offset, so the mapper
-assumes UTC. A `Z` here is the mapper's assumption, not source-provided offset information.
+stamps the wall-clock time with the optional `utcOffset` option (default `"Z"`), never the
+machine's local timezone — the same bytes map to the same records everywhere. A `Z` here is
+the mapper's default assumption, not source-provided offset information.
 </Aside>
