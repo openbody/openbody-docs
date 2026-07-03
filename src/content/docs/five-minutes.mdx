@@ -1,19 +1,23 @@
 ---
 title: OpenBody in five minutes
-description: The core of OpenBody in five schema-valid JSON examples — a measurement, a logged set, a session, a superset, and planned vs performed.
+description: The core of OpenBody in seven schema-valid JSON examples — a measurement, a logged set, a run, a strength session, a superset, planned vs performed, and a sport result.
 ---
 
 import { Aside, LinkCard, CardGrid } from '@astrojs/starlight/components';
 
-OpenBody is an open, portable JSON format for health & fitness data. This page is the 20%
-you'll use every day, as five real records. **Every example below validates against the
+OpenBody is an open, portable JSON format for health & fitness data — **all of it**, not
+one gym's worth: strength and calisthenics, running, cycling, swimming and hiking,
+climbing, team and combat sports, mobility and breathwork. This page is the 20% you'll
+use every day, as seven real records. **Every example below validates against the
 published [JSON Schema](/specification/schema/)** — copy them and go.
 
 Two kinds of data, one format:
 
 - **Observation** — measurements: heart rate, sleep, steps, GPS, body composition.
-- **Structured training** — sessions, exercises, sets, reps, load, and the
-  planned-versus-performed relationship.
+- **Structured training** — sessions, exercises, sets, reps, load, intervals,
+  continuous efforts, and the planned-versus-performed relationship. One scoring model
+  (`reps | time | distance | continuous | energy`) spans a barbell set, a plank hold, a
+  swim interval, and a marathon.
 
 ## 1. A measurement
 
@@ -61,10 +65,48 @@ every app that speaks OpenBody agrees on *which movement this is*.
 }
 ```
 
-## 3. A session
+## 3. A run
 
-A workout is a `Session` containing `Exercise`s, each containing its sets (`WorkUnit`s).
-This is the shape a typical strength-app export converts into:
+Not everything is sets and reps. A continuous effort — a run, a ride, a swim, a hike — is
+a `WorkUnit` with `scoring: "continuous"`, carrying whichever of distance/time/energy you
+have. The `measuredBy` links point at the Pillar A telemetry recorded during it (the HR
+stream, the GPS route), so the training record and the sensor data stay connected without
+duplicating either:
+
+```json
+{
+  "id": "sess-run-12",
+  "recordType": "Session",
+  "subject": "subj-001",
+  "intent": "train",
+  "disciplines": ["running"],
+  "workUnits": [{
+    "id": "wu-run",
+    "recordType": "WorkUnit",
+    "scoring": "continuous",
+    "performance": {
+      "distance": { "absolute": { "value": 10000, "unit": "m" } },
+      "time": { "absolute": { "value": 2520, "unit": "s" } }
+    },
+    "links": [
+      { "type": "measuredBy", "ref": "obs-route-77" },
+      { "type": "measuredBy", "ref": "obs-hr-stream-3" }
+    ]
+  }]
+}
+```
+
+The same shape with `disciplines: ["cycling"]` and power `intensity` targets is an
+interval ride; with `["swimming"]`, a swim set (SWOLF and stroke data ride along as
+measurements and open tokens). See the
+[coverage corpus](https://github.com/openbody/openbody/tree/main/conformance/corpus) for
+worked records across cycling intervals, zone runs, swim send-offs, freediving, hiking-style
+accumulation days, and more.
+
+## 4. A strength session
+
+A gym workout is a `Session` containing `Exercise`s, each containing its sets
+(`WorkUnit`s). This is the shape a typical strength-app export converts into:
 
 ```json
 {
@@ -99,7 +141,7 @@ This is the shape a typical strength-app export converts into:
 }
 ```
 
-## 4. A superset
+## 5. A superset
 
 Grouping structure is a `Block`. `grouping: "superset"` says the children alternate; the
 same mechanism covers circuits, giant sets, and drop sets. This planned superset also shows
@@ -134,7 +176,7 @@ richer prescription: `sets: 3` shorthand, %1RM relative load, RIR effort, and re
 }
 ```
 
-## 5. Planned vs performed
+## 6. Planned vs performed
 
 A plan and its execution can also live in **separate records**, linked by a typed
 `performedFrom` link — so a coach's program and an athlete's log stay distinct but
@@ -168,11 +210,41 @@ enumerates one record per actual set (here, the first).
 }
 ```
 
+## 7. A sport result
+
+Skill and sport outcomes are first-class, not shoehorned into reps. A bouldering problem:
+sent on the 2nd of 3 attempts, grade carried as an open token. The same `outcome`
+mechanism covers a race placement, a match score, a judged gymnastics routine, or a
+Highland-games throw:
+
+```json
+{
+  "id": "wu-boulder-v5",
+  "recordType": "WorkUnit",
+  "subject": "subj-001",
+  "exerciseRef": { "opaque": "boulder problem" },
+  "scoring": "reps",
+  "performance": {
+    "reps": 3,
+    "modifiers": [{ "type": "grade", "value": "V5" }],
+    "outcome": {
+      "kind": "success",
+      "value": true,
+      "attempts": { "made": 1, "attempted": 3 }
+    }
+  }
+}
+```
+
 <Aside type="note" title="That's the core">
 Everything else builds on these shapes: programs wrap sessions, telemetry links to training
 via `measuredBy`, records carry provenance and an immutable-plus-supersession lifecycle,
 and anything a source app says that has no canonical home is preserved via namespaced
-extensions or the opaque fallback — nothing is dropped.
+extensions or the opaque fallback — nothing is dropped. If your sport isn't pictured here,
+it's almost certainly in the
+[coverage corpus](https://github.com/openbody/openbody/tree/main/conformance/corpus) —
+kabaddi, archery, BJJ rounds, Hyrox, breathwork, freediving, and friends — every one a
+validated record.
 </Aside>
 
 ## Where to go deeper

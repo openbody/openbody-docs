@@ -30,13 +30,16 @@ import meta from '../../generated/spec-meta.json';
 
 ## Get your data out
 
-Years of workouts live inside whichever app you happened to log them in — in that app's
-schema, that app's exercise names, that app's export quirks. Switching apps means losing
-history; building on top of an app means building on an API that can change under you.
+Years of training live inside whichever apps you happened to log them in — the lifting
+app's schema, the watch's activity files, the climbing app's ticks, each with its own
+exercise names and export quirks. Switching apps means losing history; building on top of
+an app means building on an API that can change under you.
 
 **[Try it now](/tools/convert/):** upload a real Hevy CSV export and watch it become
 portable OpenBody JSON — parsed, converted, and downloadable **entirely in your browser.
-Nothing leaves your machine.** No signup, no upload, no account.
+Nothing leaves your machine.** No signup, no upload, no account. (Hevy is the first
+in-browser converter; the [open-source library](/mapping/) behind it already maps Strong,
+Strava, Apple Health, and Garmin FIT exports too.)
 
 The timing matters. Platforms keep tightening what third parties may do with *your* data —
 Strava's API restrictions being the most visible recent example — while the **EU Data Act**
@@ -49,8 +52,12 @@ Portable, well-specified formats are how those rights become usable in practice.
 <CardGrid>
   <Card title="A lossless data model — both pillars" icon="seti:pipeline">
     One format for **telemetry** (heart rate, sleep, GPS, body composition) *and*
-    **structured training** (sessions, supersets, sets, reps, %1RM, RPE, planned vs
-    performed) — the half no incumbent serves cleanly. Incumbent → OpenBody is
+    **structured training** — and structured training means *all of it*: sets and
+    supersets, runs, rides and swims, holds and intervals, climbing sends, match and race
+    results, mobility and breathwork, planned vs performed. One scoring model spans a
+    barbell set and a marathon; the
+    [coverage corpus](https://github.com/openbody/openbody/tree/main/conformance/corpus)
+    proves it on everything from Hyrox to kabaddi to freediving. Incumbent → OpenBody is
     **lossless by design**: anything without a canonical home is preserved via namespaced
     extensions or the opaque fallback. Nothing is dropped.
   </Card>
@@ -73,7 +80,7 @@ Portable, well-specified formats are how those rights become usable in practice.
 
 <CardGrid>
   <LinkCard title="Convert your workout data" href="/tools/convert/" description="Hevy CSV → portable OpenBody JSON, entirely in your browser. The fastest way to see what OpenBody is." />
-  <LinkCard title="OpenBody in five minutes" href="/five-minutes/" description="The whole core in five schema-valid JSON examples — a measurement, a set, a session, a superset, planned vs performed." />
+  <LinkCard title="OpenBody in five minutes" href="/five-minutes/" description="The whole core in seven schema-valid JSON examples — a measurement, a set, a run, a session, a superset, planned vs performed, a climbing send." />
   <LinkCard title="Getting started" href="/getting-started/" description="Validate and normalize records with the TypeScript reference implementation, then run the conformance vectors." />
   <LinkCard title="Mapping guides" href="/mapping/" description="Real incumbent → OpenBody mappings: Hevy, Strong, Strava, Apple Health, FIT." />
 </CardGrid>
