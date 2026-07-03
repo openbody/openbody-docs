@@ -23,17 +23,12 @@ implementation ships a vector runner.
    The runner reads the vectors from `../openbody/conformance/vectors/` by default; override
    the standard location with `OPENBODY_STANDARD=/path/to/openbody`.
 
-2. Run the incumbent mapper round-trips — every mapped wire record validates and
-   normalization is idempotent:
+2. Run the full test suite — typecheck, lint, and the vitest suite (310 tests), including
+   the incumbent mapper round-trips (every mapped wire record validates and normalization
+   is idempotent) and the lossless-number guarantee (`EQUIVALENCE.md` step 1):
 
    ```bash
-   npm run mappers    # Hevy / Strong / Strava / Apple Health → OpenBody, round-tripped
-   ```
-
-3. Prove the lossless-number guarantee (`EQUIVALENCE.md` step 1):
-
-   ```bash
-   npm run lossless
+   npm test
    ```
 
 </Steps>

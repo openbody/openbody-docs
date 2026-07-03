@@ -38,7 +38,7 @@ once the repository is public). Install steps will firm up at the public draft r
 2. Confirm the toolchain is green:
 
    ```bash
-   npm test   # typecheck + lossless number checks + vectors + mapper round-trips
+   npm test   # typecheck + lint + vitest (310 tests, including lossless number checks)
    ```
 
 </Steps>
@@ -94,7 +94,7 @@ console.log(equivalent(nestedDoc, flatDoc)); // → true
 For full canonicalization fidelity (`EQUIVALENCE.md` step 1), feed documents through `parseLossless` (or raw JSON text) rather
 than `JSON.parse`: numbers are parsed losslessly from their decimal text, never via
 `float64`, so high-precision decimals and integers above 2⁵³ canonicalize to their exact
-value. `npm run lossless` proves it.
+value. `npm test` proves it (the lossless-number checks run under vitest).
 </Aside>
 
 ## Next
