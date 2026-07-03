@@ -171,7 +171,7 @@ export function mapStravaActivitiesCsv(csv: string): OpenBodyRecord[] {
       moving_time: moving ?? elapsed,
       distance: distance ?? 0,
     };
-    const mapped = mapStrava({ activity, streams: { time: { data: [] } } });
+    const mapped = mapStrava({ activity, streams: { time: { data: [] } } }).records;
     const name = cell(row, "Activity Name");
     for (const rec of mapped) {
       if (rec.recordType !== "Session") continue;

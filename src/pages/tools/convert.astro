@@ -166,7 +166,9 @@ import { Aside } from "@astrojs/starlight/components";
       mapStrong,
       mapAppleHealth,
       mapOpenBodyToStrong,
+      MapperInputError,
       type ToStrongResult,
+      type MapWarning,
     } from "@openbody/openbody-ts";
     import { summarizeSessions, formatSetLine, type SessionSummary } from "../../lib/hevy/summarize";
     import {
@@ -625,12 +627,14 @@ import { Aside } from "@astrojs/starlight/components";
     const SUPPORTED_HINT =
       "Supported: Hevy CSV, Strong CSV, Apple Health export.xml, Strava activities.csv.";
 
-    function mapForSource(source: SourceId, text: string) {
+    function mapForSource(source: SourceId, text: string): { records: any[]; warnings: MapWarning[] } {
       switch (source) {
         case "hevy": return mapHevy(text);
         case "strong": return mapStrong(text);
         case "apple-health": return mapAppleHealth(text);
-        case "strava": return mapStravaActivitiesCsv(text);
+        // mapStravaActivitiesCsv is a docs-only adapter (fans out per-row mapStrava calls),
+        // not one of the package's mappers — it already returns a plain record array.
+        case "strava": return { records: mapStravaActivitiesCsv(text), warnings: [] };
       }
     }
 
@@ -659,7 +663,7 @@ import { Aside } from "@astrojs/starlight/components";
         }
         setStatus(`Detected ${SOURCE_LABEL[source]} — parsing…`, "info");
 
-        const records = mapForSource(source, text);
+        const { records, warnings } = mapForSource(source, text);
         const sessionCount = records.filter((r: any) => r.recordType === "Session").length;
         if (!records.length || (SOURCE_KIND[source] === "strength" && sessionCount === 0)) {
           setStatus(
@@ -690,20 +694,29 @@ import { Aside } from "@astrojs/starlight/components";
         if (measurementCount > 0) {
           parsedBits.push(`${measurementCount} measurement${measurementCount === 1 ? "" : "s"}`);
         }
+        const warningsNote = warnings.length
+          ? ` ${warnings.length} warning${warnings.length === 1 ? "" : "s"}: ${warnings.map((w) => w.message).join("; ")}`
+          : "";
         setStatus(
           `${SOURCE_LABEL[source]}: parsed ${parsedBits.join(" and ")} from ${file.name}. ` +
-            `Nothing left your browser.`,
+            `Nothing left your browser.${warningsNote}`,
           "success",
         );
         downloadBtn.hidden = false;
         emailCapture.hidden = false;
       } catch (err) {
         console.error("[convert-tool] parse failed:", err);
-        setStatus(
-          `Couldn't parse that file (${err instanceof Error ? err.message : String(err)}). ` +
-            `Make sure it's an unmodified export. ${SUPPORTED_HINT}`,
-          "error",
-        );
+        if (err instanceof MapperInputError) {
+          // The mapper already explains exactly what's wrong (e.g. which column is
+          // missing) — surface that message as-is rather than a generic wrapper.
+          setStatus(`${err.message}. ${SUPPORTED_HINT}`, "error");
+        } else {
+          setStatus(
+            `Couldn't parse that file (${err instanceof Error ? err.message : String(err)}). ` +
+              `Make sure it's an unmodified export. ${SUPPORTED_HINT}`,
+            "error",
+          );
+        }
       }
     }
 
