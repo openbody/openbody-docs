@@ -7,7 +7,7 @@ import { Aside } from '@astrojs/starlight/components';
 
 **Source:** Apple Health `export.xml`. **Pillars:** A + B. **Mapper:**
 [`mapAppleHealth`](https://github.com/openbody/openbody-ts/blob/main/src/mappers/apple-health.ts)
-— `mapAppleHealth(xml) → records[]`. Pillar A is **mature** here: discrete and interval
+— `mapAppleHealth(xml) → { records, warnings }`. Pillar A is **mature** here: discrete and interval
 quantity samples, sleep-stage category series, and `HKWorkout` → Session all map with no
 model gaps.
 

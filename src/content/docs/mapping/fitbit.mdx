@@ -9,7 +9,7 @@ import { Aside } from '@astrojs/starlight/components';
 (`Takeout/Fitbit/Global Export Data/` in current exports), not a single file. **Pillars:**
 A + B. **Mapper:**
 [`mapFitbitTakeout`](https://github.com/openbody/openbody-ts/blob/main/src/mappers/fitbit.ts)
-— `mapFitbitTakeout(files, opts) → records[]`, where `files` is a list of
+— `mapFitbitTakeout(files, opts) → { records, warnings }`, where `files` is a list of
 `{ name, text }` pairs (any subset); files are classified by **basename**, never by
 directory. Unknown, empty, or corrupt files are ignored gracefully.
 

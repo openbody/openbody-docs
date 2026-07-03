@@ -8,7 +8,7 @@ import { Aside } from '@astrojs/starlight/components';
 **Source:** Strong app CSV export (one row per set; `,` or `;` delimited). **Pillar:** B
 (strength). **Mapper:**
 [`mapStrong`](https://github.com/openbody/openbody-ts/blob/main/src/mappers/strong.ts) —
-`mapStrong(csv) → records[]`, one `Session` per workout.
+`mapStrong(csv) → { records, warnings }`, one `Session` per workout.
 
 ## Structural correspondence
 

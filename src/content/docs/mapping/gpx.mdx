@@ -9,7 +9,7 @@ import { Aside } from '@astrojs/starlight/components';
 Komoot, AllTrails, Ride with GPS, MapMyRun, and any other GPX 1.1 or 1.0 exporter).
 **Pillars:** A + B. **Mapper:**
 [`mapGpx`](https://github.com/openbody/openbody-ts/blob/main/src/mappers/gpx.ts) —
-`mapGpx(xml) → records[]`: one `Session` + a multi-channel `location` `Measurement`, plus
+`mapGpx(xml) → { records, warnings }`: one `Session` + a multi-channel `location` `Measurement`, plus
 separate HR/cadence/power streams when Garmin TrackPointExtension (or Strava-style
 `<power>`) data is present.
 

@@ -8,7 +8,7 @@ import { Aside } from '@astrojs/starlight/components';
 **Source:** a FIT file (Garmin/ANT+ Flexible and Interoperable Data Transfer — the format
 behind Garmin, Wahoo, Zwift, and TrainingPeaks exports). **Pillars:** A + B. **Mapper:**
 [`mapFit`](https://github.com/openbody/openbody-ts/blob/main/src/mappers/fit.ts) —
-`mapFit(decoded) → records[]`.
+`mapFit(decoded) → { records, warnings }`.
 
 <Aside type="note" title="Input is the decoded message shape, not the raw binary">
 FIT is a binary protocol (message definitions, base types, developer fields, compressed

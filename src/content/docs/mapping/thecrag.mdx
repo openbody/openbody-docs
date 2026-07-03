@@ -8,7 +8,7 @@ import { Aside } from '@astrojs/starlight/components';
 **Source:** a [theCrag](https://www.thecrag.com) logbook CSV export (Logbook → *Action →
 Export logbook as CSV*). **Pillar:** B. **Mapper:**
 [`mapTheCrag`](https://github.com/openbody/openbody-ts/blob/main/src/mappers/thecrag.ts) —
-`mapTheCrag(csv) → records[]`, one `Session` per **date + crag**, one reps-scored `WorkUnit`
+`mapTheCrag(csv) → { records, warnings }`, one `Session` per **date + crag**, one reps-scored `WorkUnit`
 per ascent. The encoding follows the spec corpus's canonical climbing vector
 (`climbing-send-attempt.valid.json`, §5.18) exactly.
 

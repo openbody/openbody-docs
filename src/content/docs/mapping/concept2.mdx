@@ -9,7 +9,7 @@ import { Aside } from '@astrojs/starlight/components';
 export — one row per workout, covering RowErg, SkiErg, and BikeErg. **Pillars:** A + B.
 **Mapper:**
 [`mapConcept2`](https://github.com/openbody/openbody-ts/blob/main/src/mappers/concept2.ts) —
-`mapConcept2(csv) → records[]`, one `Session` per row plus an avg-HR `Measurement` per
+`mapConcept2(csv) → { records, warnings }`, one `Session` per row plus an avg-HR `Measurement` per
 workout.
 
 ## Structural correspondence

@@ -7,7 +7,7 @@ import { Aside } from '@astrojs/starlight/components';
 
 **Source:** Hevy CSV export (one row per set). **Pillar:** B (strength). **Mapper:**
 [`mapHevy`](https://github.com/openbody/openbody-ts/blob/main/src/mappers/hevy.ts) —
-`mapHevy(csv) → records[]`, one `Session` per workout.
+`mapHevy(csv) → { records, warnings }`, one `Session` per workout.
 
 ## Structural correspondence
 

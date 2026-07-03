@@ -8,7 +8,7 @@ import { Aside } from '@astrojs/starlight/components';
 **Source:** a TCX file (Garmin Training Center XML, `TrainingCenterDatabase/v2` — Garmin
 Connect, Polar legacy exports, MapMyRun, and any other TCX v2 exporter). **Pillars:** A + B.
 **Mapper:** [`mapTcx`](https://github.com/openbody/openbody-ts/blob/main/src/mappers/tcx.ts)
-— `mapTcx(xml) → records[]`, one `Session` per `<Activity>`. Where [GPX](/mapping/gpx/) is
+— `mapTcx(xml) → { records, warnings }`, one `Session` per `<Activity>`. Where [GPX](/mapping/gpx/) is
 pure telemetry, TCX also carries **structure**: laps.
 
 ## Structural correspondence
