@@ -1,0 +1,100 @@
+---
+title: Build on OpenBody
+description: Start your app with a proven health & fitness data model, a CC0 exercise registry, and free import from five sources — portability as a launch feature.
+---
+
+import { Aside, Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+import meta from '../../../generated/spec-meta.json';
+
+If you're building a fitness, training, or health app, one of your day-one jobs is
+inventing a data model: how a workout, a set, a superset, a planned session, an interval,
+a heart-rate stream are shaped. That work is expensive to get right, invisible to your
+users, and worth nothing competitively — and a hand-rolled v1 schema usually turns into a
+painful migration two years in.
+
+You can skip it. OpenBody is an open, vendor-neutral data model you can adopt **natively**
+— not just as an export format at the boundary, but as the shape of your domain.
+
+## What you get on day one
+
+<CardGrid>
+  <Card title="A curated, CC0 exercise database" icon="list-format">
+    Every fitness app needs an exercise database. The
+    [OpenBody registry](/registry/exercises/) ships **800+ canonical movements** with
+    structured facets (equipment, movement pattern, anatomy, laterality), progression /
+    regression / variation relationships, and crosswalks from the names real apps use —
+    CC0, no attribution required, versioned, and growing. This alone is worth adopting;
+    the format rides in with it.
+  </Card>
+  <Card title="A data model that's already solved the hard parts" icon="seti:json">
+    Supersets and drop sets, planned-versus-performed, %1RM and threshold-relative
+    targets, AMRAP/EMOM scoring, continuous efforts, per-side work, sport outcomes,
+    provenance and correction lifecycles — modeled once, [specified precisely](/specification/),
+    stress-tested across everything from powerlifting to freediving to kabaddi. You
+    inherit answers, not open questions.
+  </Card>
+  <Card title="Free import from five sources" icon="random">
+    The Apache-2.0 [reference library](https://github.com/openbody/openbody-ts) maps
+    Hevy, Strong, Strava, Apple Health, and Garmin FIT exports into OpenBody, resolves
+    exercise names to canonical ids, and exports back out (Strong-format CSV, which
+    Hevy also imports). "Bring your history from any app" becomes a launch feature you
+    didn't have to build.
+  </Card>
+  <Card title="Portability as a trust signal" icon="approve-check">
+    Platforms are tightening data access, and the EU Data Act is pushing the other way.
+    "Your data is portable, in an open format" is a real differentiator against
+    incumbents whose lock-in users increasingly resent — and it costs you nothing when
+    the format is your native shape.
+  </Card>
+</CardGrid>
+
+## Two ways to adopt
+
+**OpenBody-shaped domain model.** Keep whatever storage suits your queries (Postgres,
+SQLite, Core Data) but make your domain types mirror the OpenBody model — `Session`,
+`Block`, `WorkUnit`, `Target`, `ExerciseRef` — and speak OpenBody JSON at every boundary:
+import, export, sync, and API. You get the modeling and interop wins without committing
+your storage layer.
+
+**OpenBody documents as storage.** For local-first and smaller apps, storing OpenBody
+records directly (JSON documents in SQLite, files, or a sync store) is genuinely viable:
+records are self-contained, immutable-plus-supersession by design (a natural fit for
+sync), and your "database export" is *already* the interchange format. The
+[conformance vectors](/conformance/) double as your test fixtures.
+
+Either way, the rules that protect you as a consumer are simple: read what you understand,
+**preserve what you don't** (unknown fields and tokens round-trip; nothing is dropped),
+and use [namespaced extensions](/specification/) for anything app-specific — your private
+fields never collide with the core or with other apps.
+
+## What we promise about stability
+
+- The spec follows **semantic versioning** with a published
+  [versioning policy](https://github.com/openbody/openbody/blob/main/VERSIONING.md):
+  additive changes are minors, breaking changes only at majors, and elements are
+  **deprecated, not removed**, within a major line.
+- Open vocabularies grow via **registry releases, not spec releases** — new exercises,
+  disciplines, or scoring schemes never require a core version bump, and unknown tokens
+  always round-trip.
+- Conformance is judged by **published test vectors** with the reference implementation
+  as the oracle — you don't have to implement canonicalization machinery to be
+  conformant; your inputs and outputs are what count.
+
+<Aside type="caution" title="Where we are today (honest status)">
+OpenBody is a **pre-v1.0 draft (spec v{meta.specVersion})** in private review — breaking
+changes are still possible before v1.0, the repos are not yet public, and
+`@openbody/openbody-ts` is not yet on npm. If you're evaluating OpenBody as your native
+format **now**, you are exactly the adopter we most want to hear from: early integrators
+get direct input into what stabilizes and how — the practical path is a short
+integration conversation, not a silent dependency. Reach us at
+<a href="mailto:contact@openbody.dev">contact@openbody.dev</a>.
+</Aside>
+
+## Where to start
+
+<CardGrid>
+  <LinkCard title="OpenBody in five minutes" href="/five-minutes/" description="The core shapes you'd be adopting, as seven schema-valid records." />
+  <LinkCard title="The exercise registry" href="/registry/exercises/" description="The CC0 movement database: ids, facets, crosswalks, and how it grows." />
+  <LinkCard title="Install & validate" href="/getting-started/" description="The TypeScript reference implementation: validate, normalize, map, resolve." />
+  <LinkCard title="Conformance" href="/conformance/" description="Profiles, test vectors, and what 'OpenBody Compatible' will mean." />
+</CardGrid>

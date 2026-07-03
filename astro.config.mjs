@@ -28,6 +28,7 @@ export default defineConfig({
           items: [
             { label: "OpenBody in five minutes", link: "/five-minutes/" },
             { label: "Convert your data", link: "/tools/convert/", badge: { text: "beta", variant: "caution" } },
+            { label: "Build on OpenBody", link: "/build/" },
             { label: "Install & validate a record", link: "/getting-started/" },
             { label: "Run the conformance vectors", link: "/getting-started/vectors/" },
           ],
