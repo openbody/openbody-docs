@@ -11,7 +11,7 @@
 //   `activities.csv` (summary rows, no streams) — so `mapStravaActivitiesCsv` below turns
 //   each CSV row into a minimal StravaInput with empty streams. Per-activity GPX/FIT
 //   stream parsing is intentionally out of scope for now.
-import { mapStrava, type OpenBodyRecord } from "@openbody/openbody-ts";
+import { mapStrava, type LiveRecord, type ScalarOrTarget } from "@openbody/openbody-ts";
 
 export type SourceId = "hevy" | "strong" | "apple-health" | "strava";
 
@@ -135,7 +135,7 @@ const numOf = (s: string | undefined): number | undefined => {
  * (with empty streams — the CSV has no samples). Summary fields only: sport, start time,
  * elapsed/moving time, distance, name.
  */
-export function mapStravaActivitiesCsv(csv: string): OpenBodyRecord[] {
+export function mapStravaActivitiesCsv(csv: string): LiveRecord[] {
   const rows = parseCsvRaw(csv.replace(/^\uFEFF/, ""));
   const header = (rows.shift() ?? []).map((h) => h.trim());
   const allIdx = (name: string) =>
@@ -150,7 +150,7 @@ export function mapStravaActivitiesCsv(csv: string): OpenBodyRecord[] {
   const distIdx = allIdx("Distance");
   const elapsedIdx = allIdx("Elapsed Time");
 
-  const records: OpenBodyRecord[] = [];
+  const records: LiveRecord[] = [];
   rows.forEach((row, i) => {
     if (row.every((c) => c.trim() === "")) return;
     const start = parseStravaDate(cell(row, "Activity Date"));
@@ -205,6 +205,19 @@ export interface EnduranceSummary {
   sessions: EnduranceSessionLine[];
 }
 
+/**
+ * Pull the numeric value + unit out of a WorkUnit performance field. Mappers only ever
+ * emit performed distance/time as an absolute measurement (`{ absolute: { value, unit } }`)
+ * — the other ScalarOrTarget variants (range/relativeToThreshold/stopCondition) describe
+ * prescriptions/targets, not what actually happened — so this narrows to that one shape.
+ */
+function absoluteOf(v: ScalarOrTarget | undefined): { value: number; unit?: string } | undefined {
+  if (v && typeof v === "object" && "absolute" in v && typeof v.absolute.value === "number") {
+    return { value: v.absolute.value, unit: v.absolute.unit };
+  }
+  return undefined;
+}
+
 const toKm = (value: number, unit: string): number => {
   switch (unit) {
     case "m": return value / 1000;
@@ -240,7 +253,7 @@ export function formatHoursMinutes(totalSeconds: number): string {
 }
 
 /** Presentation-only rollup of endurance-shaped records (Sessions + Measurements). */
-export function summarizeEndurance(records: OpenBodyRecord[]): EnduranceSummary {
+export function summarizeEndurance(records: LiveRecord[]): EnduranceSummary {
   const disciplines = new Map<string, number>();
   const measurementsByType = new Map<string, number>();
   let sessionCount = 0;
@@ -265,10 +278,10 @@ export function summarizeEndurance(records: OpenBodyRecord[]): EnduranceSummary 
     let seconds = 0;
     for (const wu of rec.workUnits ?? []) {
       const p = wu.performance ?? {};
-      const dist = p.distance?.absolute;
-      if (dist && typeof dist.value === "number") km += toKm(dist.value, String(dist.unit ?? "m"));
-      const time = p.time?.absolute;
-      if (time && typeof time.value === "number" && time.unit === "s") seconds += time.value;
+      const dist = absoluteOf(p.distance);
+      if (dist) km += toKm(dist.value, String(dist.unit ?? "m"));
+      const time = absoluteOf(p.time);
+      if (time && time.unit === "s") seconds += time.value;
     }
     if (seconds === 0 && rec.startTime && rec.endTime) {
       const span = (new Date(rec.endTime).getTime() - new Date(rec.startTime).getTime()) / 1000;
@@ -356,7 +369,7 @@ function isoDate(ms: number): string {
 
 /** Roll every converted record up into the one summary card shown above the downloads. */
 export function summarizeUnified(
-  records: OpenBodyRecord[],
+  records: LiveRecord[],
   kind: "strength" | "endurance",
 ): UnifiedSummary {
   const disciplines = new Map<string, number>();
@@ -387,7 +400,7 @@ export function summarizeUnified(
     let sets = 0;
     const exercises = [
       ...(rec.exercises ?? []),
-      ...((rec.blocks ?? []).flatMap((b: OpenBodyRecord) => b.children ?? [])),
+      ...(rec.blocks ?? []).flatMap((b) => b.children ?? []),
     ];
     for (const ex of exercises) {
       if (ex?.recordType !== "Exercise") continue;
@@ -409,10 +422,10 @@ export function summarizeUnified(
     let seconds = 0;
     for (const wu of rec.workUnits ?? []) {
       const p = wu.performance ?? {};
-      const dist = p.distance?.absolute;
-      if (dist && typeof dist.value === "number") km += toKm(dist.value, String(dist.unit ?? "m"));
-      const time = p.time?.absolute;
-      if (time && typeof time.value === "number" && time.unit === "s") seconds += time.value;
+      const dist = absoluteOf(p.distance);
+      if (dist) km += toKm(dist.value, String(dist.unit ?? "m"));
+      const time = absoluteOf(p.time);
+      if (time && time.unit === "s") seconds += time.value;
     }
     if (seconds === 0 && rec.startTime && rec.endTime) {
       const span = (new Date(rec.endTime).getTime() - new Date(rec.startTime).getTime()) / 1000;

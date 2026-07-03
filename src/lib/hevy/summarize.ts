@@ -1,7 +1,7 @@
 // Turns raw OpenBody wire records (as produced by `mapHevy`) into a small, presentation-only
 // shape for the human-readable preview on /tools/convert/. Not part of the OpenBody data
 // model itself — just a view over it.
-import type { OpenBodyRecord } from "@openbody/openbody-ts";
+import type { Exercise, LiveRecord, ScalarOrTargetWithRamp } from "@openbody/openbody-ts";
 
 export interface SetSummary {
   index: number;
@@ -28,19 +28,43 @@ export interface SessionSummary {
   exercises: ExerciseSummary[];
 }
 
-function exerciseSummary(ex: OpenBodyRecord): ExerciseSummary {
-  const name = ex.exerciseRef?.opaque ?? ex.exerciseRef?.registryId ?? "Unknown exercise";
-  const sets: SetSummary[] = (ex.workUnits ?? []).map((wu: OpenBodyRecord, i: number) => {
+/**
+ * Read a plain-number ScalarOrTarget/ScalarOrTargetWithRamp field. The other variants
+ * (range/relativeToThreshold/stopCondition/ramp) describe prescriptions/targets, not a
+ * performed value, so they're deliberately not unwrapped here — mapHevy only ever emits
+ * performed reps/time/load as bare numbers.
+ */
+function numberOf(v: ScalarOrTargetWithRamp | undefined): number | undefined {
+  return typeof v === "number" ? v : undefined;
+}
+
+/** Same idea for performed distance, which mapHevy emits as `{ absolute: { value, unit } }`. */
+function absoluteOf(v: ScalarOrTargetWithRamp | undefined): { value: number; unit?: string } | undefined {
+  if (v && typeof v === "object" && "absolute" in v && typeof v.absolute.value === "number") {
+    return { value: v.absolute.value, unit: v.absolute.unit };
+  }
+  return undefined;
+}
+
+function exerciseSummary(ex: Exercise): ExerciseSummary {
+  const ref = ex.exerciseRef;
+  const opaque = typeof ref === "string" ? undefined : ref?.opaque;
+  // Bug fix: this read `.registryId`, a field the wire format has never had (the canonical
+  // registry id lives on `.id`) — resolved refs always fell through to "Unknown exercise".
+  const id = typeof ref === "string" ? ref : ref?.id;
+  const name = opaque ?? id ?? "Unknown exercise";
+  const sets: SetSummary[] = (ex.workUnits ?? []).map((wu, i) => {
     const p = wu.performance ?? {};
+    const distance = absoluteOf(p.distance);
     return {
       index: i + 1,
       role: wu.setRole,
-      reps: p.reps,
-      loadValue: p.load?.value,
+      reps: numberOf(p.reps),
+      loadValue: numberOf(p.load?.value),
       loadUnit: p.load?.unit,
       loadBasis: p.load?.basis,
-      distanceKm: p.distance?.absolute?.value,
-      seconds: p.time,
+      distanceKm: distance?.value,
+      seconds: numberOf(p.time),
       rpe: p.effortLoad?.[0]?.value,
     };
   });
@@ -54,7 +78,7 @@ function dateLabel(iso: string): string {
 }
 
 /** Flatten a session's `exercises` (or `blocks[].children`, for supersets) into one list. */
-export function summarizeSessions(records: OpenBodyRecord[]): SessionSummary[] {
+export function summarizeSessions(records: LiveRecord[]): SessionSummary[] {
   return records
     .filter((r) => r.recordType === "Session")
     .map((session) => {
@@ -65,6 +89,7 @@ export function summarizeSessions(records: OpenBodyRecord[]): SessionSummary[] {
         for (const block of session.blocks) {
           const isSuperset = block.grouping === "superset";
           for (const child of block.children ?? []) {
+            if (child.recordType !== "Exercise") continue;
             const summary = exerciseSummary(child);
             if (isSuperset) summary.supersetGroup = block.id;
             exercises.push(summary);
@@ -72,9 +97,9 @@ export function summarizeSessions(records: OpenBodyRecord[]): SessionSummary[] {
         }
       }
       return {
-        id: session.id,
+        id: session.id ?? "",
         name: session.name || "Untitled workout",
-        dateLabel: dateLabel(session.startTime),
+        dateLabel: dateLabel(session.startTime ?? ""),
         exercises,
       };
     });
