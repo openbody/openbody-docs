@@ -7,8 +7,13 @@ const SPEC_PATH = fileURLToPath(
 );
 const SPEC_URL = "/specification/spec/";
 
-// Matches §N or §N.N but not §§ (range citations like §§4–7 have no single anchor).
-const CITATION_RE = /(?<!§)§(?!§)(\d+(?:\.\d+)*)/g;
+// Matches a single citation (§N / §N.N) or a range (§§4–7). A range has no anchor
+// of its own, so it links to its *first* section (the range's start) while keeping
+// the full "§§4–7" text visible. The range branch is tried first so §§ never falls
+// through to the single-section branch.
+const RANGE_SRC = /§§(\d+(?:\.\d+)*)\s*[–—-]\s*\d+(?:\.\d+)*/.source;
+const SINGLE_SRC = /(?<!§)§(?!§)(\d+(?:\.\d+)*)/.source;
+const CITATION_RE = new RegExp(`${RANGE_SRC}|${SINGLE_SRC}`, "g");
 const HEADING_RE = /^#{1,6}\s+(.+?)\s*$/;
 const SECTION_NUMBER_RE = /^(\d+(?:\.\d+)*)\.?\s+/;
 
@@ -45,7 +50,9 @@ function linkifyText(node, sectionMap, filePath) {
   const parts = [];
 
   while ((match = CITATION_RE.exec(value))) {
-    const [full, number] = match;
+    const full = match[0];
+    // Group 1 = range start (§§4–7 → "4"); group 2 = single citation (§5.5 → "5.5").
+    const number = match[1] ?? match[2];
     const anchor = sectionMap.get(number);
     if (!anchor) {
       console.warn(`[remark-spec-links] ${filePath}: unresolved section §${number}`);
