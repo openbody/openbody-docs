@@ -8,7 +8,7 @@ import { Aside, LinkCard, CardGrid } from '@astrojs/starlight/components';
 Bidirectional mapping to and from incumbent schemas is OpenBody's **primary success
 measure** and its adoption wedge: the standard is a **universal adapter**. These guides are
 built from the real mappers in [`openbody-ts/src/mappers`](https://github.com/openbody/openbody-ts/tree/main/src/mappers)
-— pure `input → { records, warnings }` functions, round-trip tested (`npm test`, 335 tests).
+— pure `input → { records, warnings }` functions, round-trip tested (`npm test`).
 Structurally unusable input throws a typed `MapperInputError`; anything merely degraded,
 skipped, or defaulted is reported on the returned `warnings` channel instead. The mappers
 resolve source exercise names to canonical [registry](/registry/exercises/) ids where the
@@ -18,7 +18,9 @@ registry covers them, falling back to the lossless `opaque` form otherwise.
 
 All mappers are importable from the `openbody-ts` package root and run in both node and the
 browser. The [in-browser converter](/tools/convert/) wires a subset of them to a drag-and-drop
-page.
+page. (Bundling the package for the browser needs a toolchain that understands JSON import
+attributes — `import … with { type: "json" }`, used for the vendored schema and crosswalk;
+modern esbuild / Vite / Rollup / Webpack 5 all do. Node needs nothing extra.)
 
 | Format | Direction | Works in | Caveats |
 |---|---|---|---|

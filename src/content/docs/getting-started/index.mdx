@@ -38,7 +38,7 @@ once the repository is public). Install steps will firm up at the public draft r
 2. Confirm the toolchain is green:
 
    ```bash
-   npm test   # typecheck + lint + vitest (335 tests, including lossless number checks)
+   npm test   # typecheck + lint + vitest (including lossless number checks)
    ```
 
 </Steps>
@@ -101,7 +101,7 @@ value. `npm test` proves it (the lossless-number checks run under vitest).
 
 - [Run the conformance vectors](/getting-started/vectors/) against the reference implementation.
 - [Concepts](/concepts/data-model/) — the data model, the two pillars, exercise identity, canonicalization.
-- [Mapping guides](/mapping/) — turn a real export into OpenBody records: a dozen formats
+- [Mapping guides](/mapping/) — turn a real export into OpenBody records: ten formats
   and counting, from Hevy and Strava to Fitbit Takeout and theCrag — see the
   [supported-formats matrix](/mapping/). The mappers also resolve source exercise names to
   canonical [registry](/registry/exercises/) ids where the registry covers them, falling
