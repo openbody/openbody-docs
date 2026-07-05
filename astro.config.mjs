@@ -8,6 +8,17 @@ export default defineConfig({
   // Apex domain on Cloudflare Pages (see DEPLOY.md). No base path: served at the root.
   site: "https://openbody.dev",
   trailingSlash: "ignore",
+  vite: {
+    optimizeDeps: {
+      // Keep Vite's dev dependency pre-bundling scanner away from the convert page.
+      // Its hoisted client `<script>` (now `src/scripts/convert-tool.ts`) trips a known
+      // esbuild scan-time parse bug in the Astro hoisted-script scanner, printing a red but
+      // non-fatal "Failed to scan for dependencies" ERROR on every `npm run dev` startup.
+      // Excluding this one entry silences it; the page's deps are still discovered on first
+      // load (Vite re-optimizes on demand). Prod build + `astro check` are unaffected.
+      entries: ["src/**/*.astro", "!src/pages/tools/convert.astro"],
+    },
+  },
   markdown: {
     remarkPlugins: [remarkSpecLinks],
   },
