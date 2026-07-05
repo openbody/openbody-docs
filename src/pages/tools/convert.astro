@@ -1384,5 +1384,63 @@ import { Aside } from "@astrojs/starlight/components";
     .ob-lean-eco-h { margin: 0 0 0.4rem; font-size: var(--sl-text-lg); font-weight: 600; color: var(--sl-color-white); }
     .ob-lean-eco-p { margin: 0; font-size: var(--sl-text-sm); color: var(--sl-color-gray-2); max-width: 68ch; }
     .ob-lean-eco-link { font-weight: 600; white-space: nowrap; }
+
+    /* Sticky quick-download bar (OB-92): a slim floating pill that appears once the export
+       hero scrolls out of view, keeping the primary CTA reachable while scrolling the data.
+       Tucks just under Starlight's sticky site header (top offset = nav height; z-index well
+       below the header so it never fights it) and is centred over the content. Fixed, so it
+       never shifts page layout; built with the result and removed on "Start over". */
+    .ob-sticky-dl {
+      position: fixed;
+      top: calc(var(--sl-nav-height, 3.5rem) + 0.4rem);
+      left: 50%;
+      z-index: 5; /* Starlight's navbar sits far above this, so the header always wins. */
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+      padding: 0.4rem 0.5rem 0.4rem 0.95rem;
+      border: 1px solid color-mix(in srgb, var(--sl-color-accent) 45%, var(--sl-color-hairline));
+      border-radius: 999px;
+      background-color: color-mix(in srgb, var(--sl-color-accent) 10%, var(--sl-color-bg));
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+      /* Hidden until pinned; visibility:hidden keeps the button out of the tab order. */
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transform: translateX(-50%) translateY(-0.4rem);
+      transition: opacity 0.18s ease, transform 0.18s ease, visibility 0s linear 0.18s;
+    }
+    .ob-sticky-dl.is-pinned {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      transform: translateX(-50%) translateY(0);
+      transition: opacity 0.18s ease, transform 0.18s ease, visibility 0s;
+    }
+    .ob-sticky-dl-label {
+      font-size: var(--sl-text-sm);
+      color: var(--sl-color-gray-2);
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+    .ob-sticky-dl-label b { color: var(--sl-color-white); font-weight: 600; }
+    .ob-sticky-dl-btn { margin: 0; padding: 0.4rem 0.95rem; }
+    .ob-sticky-dl-btn:focus-visible {
+      outline: 2px solid var(--sl-color-accent);
+      outline-offset: 2px;
+    }
+    @media (max-width: 30rem) {
+      .ob-sticky-dl { left: 0.75rem; right: 0.75rem; transform: translateY(-0.4rem); }
+      .ob-sticky-dl.is-pinned { transform: translateY(0); }
+      .ob-sticky-dl-btn { margin-left: auto; }
+    }
+    /* Reduced motion: a simple fade, no slide. */
+    @media (prefers-reduced-motion: reduce) {
+      .ob-sticky-dl { transform: translateX(-50%); transition: opacity 0.18s ease, visibility 0s linear 0.18s; }
+      .ob-sticky-dl.is-pinned { transform: translateX(-50%); transition: opacity 0.18s ease, visibility 0s; }
+      @media (max-width: 30rem) {
+        .ob-sticky-dl, .ob-sticky-dl.is-pinned { transform: none; }
+      }
+    }
   </style>
 </StarlightPage>
