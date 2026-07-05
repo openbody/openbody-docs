@@ -607,30 +607,6 @@
       resolutionEl.hidden = false;
     }
 
-    // Once a history has more than a handful of sessions, the full per-session breakdown is
-    // an endless scroll — so the summary card above is the lead, and this verbose stack goes
-    // behind a collapsed <details> (opt-in), not the default surface.
-    const SESSION_DETAILS_THRESHOLD = 8;
-
-    // Append `cards` to `previewEl` directly for short lists, or behind a collapsed
-    // <details summary> when there are more than the threshold. Keeps the default surface the
-    // summary + downloads, with the wall-of-cards one click away.
-    function mountCardStack(cards: HTMLElement[], summaryText: string, host: HTMLElement) {
-      if (cards.length > SESSION_DETAILS_THRESHOLD) {
-        const details = document.createElement("details");
-        details.className = "ob-breakdown";
-        const summary = document.createElement("summary");
-        summary.textContent = summaryText;
-        const stack = document.createElement("div");
-        stack.className = "ob-preview-stack";
-        stack.append(...cards);
-        details.append(summary, stack);
-        host.append(details);
-      } else {
-        host.append(...cards);
-      }
-    }
-
     function renderPreview(records: unknown[], host: HTMLElement) {
       const previewEl = host;
       const sessions: SessionSummary[] = summarizeSessions(records as any);
@@ -642,17 +618,31 @@
         previewEl.append(p);
       }
 
+      // Each session is its own collapsible <details>: collapsed it's a scannable
+      // name · date · count row, so the section is a tidy list instead of a wall of every
+      // set; the first opens as a preview of what's inside.
       const cards: HTMLElement[] = [];
-      for (const session of sessions) {
-        const card = document.createElement("article");
+      sessions.forEach((session, idx) => {
+        const card = document.createElement("details");
         card.className = "ob-session-card";
+        if (idx === 0) card.open = true;
 
-        const heading = document.createElement("h3");
+        const sum = document.createElement("summary");
+        sum.className = "ob-session-sum";
+        const heading = document.createElement("span");
+        heading.className = "ob-session-name";
         heading.textContent = session.name;
-        const dateEl = document.createElement("p");
+        const dateEl = document.createElement("span");
         dateEl.className = "ob-session-date";
         dateEl.textContent = session.dateLabel;
-        card.append(heading, dateEl);
+        const setCount = session.exercises.reduce((n, ex) => n + ex.sets.length, 0);
+        const meta = document.createElement("span");
+        meta.className = "ob-session-meta";
+        meta.textContent =
+          `${session.exercises.length} exercise${session.exercises.length === 1 ? "" : "s"} · ` +
+          `${setCount} set${setCount === 1 ? "" : "s"}`;
+        sum.append(heading, dateEl, meta);
+        card.append(sum);
 
         const exList = document.createElement("div");
         exList.className = "ob-exercise-list";
@@ -677,8 +667,8 @@
         }
         card.append(exList);
         cards.push(card);
-      }
-      mountCardStack(cards, `Per-session breakdown (${sessions.length} sessions)`, previewEl);
+      });
+      previewEl.append(...cards);
     }
 
     // Endurance sources (Apple Health, Strava) don't have sets/reps to preview or exercise
@@ -690,33 +680,37 @@
       const summary = summarizeEndurance(records);
 
       previewEl.replaceChildren();
+      // Same collapsible-per-session treatment as strength: collapsed, each is a name · date
+      // row carrying its summary line; the first opens as a preview.
       const cards: HTMLElement[] = [];
-      for (const session of summary.sessions.slice(0, ENDURANCE_PREVIEW_CAP)) {
-        const card = document.createElement("article");
+      summary.sessions.slice(0, ENDURANCE_PREVIEW_CAP).forEach((session, idx) => {
+        const card = document.createElement("details");
         card.className = "ob-session-card";
-        const heading = document.createElement("h3");
+        if (idx === 0) card.open = true;
+        const sum = document.createElement("summary");
+        sum.className = "ob-session-sum";
+        const heading = document.createElement("span");
+        heading.className = "ob-session-name";
         heading.textContent = session.name;
-        const dateEl = document.createElement("p");
+        const dateEl = document.createElement("span");
         dateEl.className = "ob-session-date";
         dateEl.textContent = session.dateLabel;
+        sum.append(heading, dateEl);
+        card.append(sum);
         const partsEl = document.createElement("p");
         partsEl.className = "ob-session-parts";
         partsEl.textContent = session.parts.join(" · ");
-        card.append(heading, dateEl, partsEl);
+        card.append(partsEl);
         cards.push(card);
-      }
-      // The summary card above is the lead; the per-session stack collapses behind a
-      // <details> once it would be an endless scroll.
-      mountCardStack(cards, `Per-session breakdown (${summary.sessions.length} sessions)`, previewEl);
+      });
+      previewEl.append(...cards);
       if (summary.sessions.length > ENDURANCE_PREVIEW_CAP) {
         const more = document.createElement("p");
         more.className = "ob-preview-more";
         more.textContent =
           `Showing the first ${ENDURANCE_PREVIEW_CAP} of ${summary.sessions.length} sessions ` +
           `above — all are in the download and the raw records below.`;
-        // Put the "more" note inside the collapsible stack when collapsed, else after it.
-        const stack = previewEl.querySelector(".ob-breakdown .ob-preview-stack") ?? previewEl;
-        stack.append(more);
+        previewEl.append(more);
       }
     }
 
@@ -1244,7 +1238,9 @@
       actions.append(downloadBtn);
       if (hasStrength) {
         downloadStrongBtn.textContent = "Export as Strong CSV";
-        downloadStrongBtn.className = "ob-btn ob-btn-secondary";
+        // Same ob-btn-lg sizing as the primary so the two sit at equal height in the row —
+        // the colour (filled vs outline) carries the hierarchy, not the size.
+        downloadStrongBtn.className = "ob-btn ob-btn-secondary ob-btn-lg";
         actions.append(downloadStrongBtn);
       }
       section.append(actions);

@@ -605,22 +605,47 @@ import { Aside } from "@astrojs/starlight/components";
       flex-direction: column;
       gap: 1rem;
     }
+    /* Session cards are collapsible <details>: the summary is a scannable
+       name · date · count row (default disclosure marker, matching the parent sections);
+       the exercise/set detail lives in the body and only shows when expanded. */
     .ob-session-card {
       border: 1px solid var(--sl-color-hairline);
       border-radius: 0.5rem;
-      padding: 1rem 1.25rem;
+      padding: 0;
       background-color: var(--sl-color-bg-nav);
     }
-    .ob-session-card h3 {
-      margin: 0;
+    /* Child combinator to out-specify Starlight's `.sl-markdown-content summary` rule, which
+       otherwise forces this back to display:block and collapses the flex gaps. */
+    .ob-session-card > .ob-session-sum {
+      cursor: pointer;
+      display: flex;
+      align-items: baseline;
+      flex-wrap: wrap;
+      gap: 0.3rem 0.7rem;
+      padding: 0.7rem 1rem;
+    }
+    .ob-session-name {
+      font-weight: 600;
+      color: var(--sl-color-white);
     }
     .ob-session-date {
-      margin: 0.15rem 0 0.75rem;
+      margin: 0;
       font-size: var(--sl-text-sm);
       color: var(--sl-color-gray-3);
     }
+    .ob-session-meta {
+      margin-left: auto;
+      font-family: var(--sl-font-mono);
+      font-size: var(--sl-text-xs);
+      color: var(--sl-color-gray-3);
+      font-variant-numeric: tabular-nums;
+    }
+    .ob-session-card .ob-exercise-list {
+      padding: 0 1rem 0.9rem;
+    }
     .ob-session-parts {
       margin: 0;
+      padding: 0 1rem 0.9rem;
       font-size: var(--sl-text-sm);
       color: var(--sl-color-gray-2);
     }
@@ -780,14 +805,7 @@ import { Aside } from "@astrojs/starlight/components";
       color: var(--sl-color-text);
     }
 
-    /* Collapsed verbose surfaces: per-session breakdown + raw-JSON expander. */
-    .ob-preview-stack {
-      display: flex;
-      flex-direction: column;
-      gap: 1rem;
-      margin-top: 1rem;
-    }
-    .ob-breakdown > summary,
+    /* Collapsed raw-JSON expander. */
     .ob-raw > summary {
       cursor: pointer;
       font-weight: 600;
