@@ -1350,18 +1350,22 @@ import { Aside } from "@astrojs/starlight/components";
       border-radius: 0.55rem;
       background-color: var(--sl-color-bg-nav);
     }
-    .ob-lean-section-sum {
+    /* Child combinator to out-specify Starlight's `.sl-markdown-content summary` rule, which
+       otherwise forces display:block and collapses the title against the record count. */
+    .ob-lean-section > .ob-lean-section-sum {
       cursor: pointer;
       display: flex;
       align-items: baseline;
-      justify-content: space-between;
       gap: 0.75rem;
       padding: 0.75rem 1rem;
       font-weight: 600;
       color: var(--sl-color-white);
     }
     .ob-lean-section-title { font-size: var(--sl-text-base); }
+    /* margin-left:auto pushes the count to the far right, keeping the disclosure marker +
+       title left-aligned (space-between would centre the title against the marker). */
     .ob-lean-section-n {
+      margin-left: auto;
       font-family: var(--sl-font-mono);
       font-size: var(--sl-text-xs);
       font-weight: 500;
