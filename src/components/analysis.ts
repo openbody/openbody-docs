@@ -906,6 +906,70 @@ export function enduranceTrends(records: LiveRecord[], weeks?: number): Enduranc
   return { weekly, totalKm, totalSeconds, disciplines, distanceTrend, activeWeeks: activeWeeks.size, spanWeeks };
 }
 
+// --- 4b. universal: training consistency (workouts per week) ---------------------------
+
+export interface ConsistencyWeek {
+  weekStart: string;
+  sessions: number;
+}
+export interface ConsistencyTrend {
+  weekly: ConsistencyWeek[];
+  totalSessions: number;
+  /** Mean workouts per week across every week in the covered span (zero weeks included). */
+  avgPerWeek: number;
+  /** Distinct weeks with ≥1 workout. */
+  activeWeeks: number;
+  /** Span in weeks between the first and last workout. */
+  spanWeeks: number;
+  /** Direction of workouts/week over the span (first third of weeks vs last third). */
+  direction: "up" | "down" | "flat";
+}
+
+/**
+ * Weekly workout counts across the merged history — the lead "taste" for a workout-dominant
+ * history. Every Session counts as one workout, bucketed to its ISO-Monday week on a
+ * zero-filled contiguous week axis; `avgPerWeek` is the mean over that span and `direction`
+ * compares the first third of weeks to the last third. `weeks`, when given, keeps only the
+ * most recent N weeks of the series.
+ */
+export function consistencyTrend(records: LiveRecord[], weeks?: number): ConsistencyTrend {
+  const sessionMs: number[] = [];
+  for (const rec of records) {
+    if (rec.recordType !== "Session") continue;
+    const t = ms(rec.startTime);
+    if (t !== undefined) sessionMs.push(t);
+  }
+  if (sessionMs.length === 0) {
+    return { weekly: [], totalSessions: 0, avgPerWeek: 0, activeWeeks: 0, spanWeeks: 0, direction: "flat" };
+  }
+  sessionMs.sort((a, b) => a - b);
+  const minWeek = weekStartMs(sessionMs[0]);
+  const maxWeek = weekStartMs(sessionMs[sessionMs.length - 1]);
+  const allWeeks: number[] = [];
+  for (let w = minWeek; w <= maxWeek; w += WEEK_MS) allWeeks.push(w);
+  const kept = weeks && weeks > 0 ? allWeeks.slice(-weeks) : allWeeks;
+  const idx = new Map(kept.map((w, i) => [w, i]));
+  const counts: number[] = new Array(kept.length).fill(0);
+  let totalSessions = 0;
+  for (const t of sessionMs) {
+    const i = idx.get(weekStartMs(t));
+    if (i !== undefined) { counts[i]++; totalSessions++; }
+  }
+  const weekly: ConsistencyWeek[] = kept.map((w, i) => ({ weekStart: isoDay(w), sessions: counts[i] }));
+  const avgPerWeek = kept.length > 0 ? totalSessions / kept.length : 0;
+  const activeWeeks = counts.filter((c) => c > 0).length;
+
+  let dir: "up" | "down" | "flat" = "flat";
+  if (counts.length >= 2) {
+    const third = Math.max(1, Math.floor(counts.length / 3));
+    const firstMean = counts.slice(0, third).reduce((a, b) => a + b, 0) / third;
+    const lastMean = counts.slice(-third).reduce((a, b) => a + b, 0) / third;
+    dir = direction(firstMean, lastMean, Math.max(0.3, firstMean * 0.15));
+  }
+  const spanWeeks = Math.floor((maxWeek - minWeek) / WEEK_MS) + 1;
+  return { weekly, totalSessions, avgPerWeek, activeWeeks, spanWeeks, direction: dir };
+}
+
 // --- 5. universal: bulk / cut phases ---------------------------------------------------
 
 export interface BulkCutPhase {
@@ -922,14 +986,24 @@ export interface BulkCutPhase {
   label: "bulk" | "cut" | "maintain";
 }
 
-const BULK_CUT_MIN_DAYS = 14;
+// A phase only earns a bulk/cut band when the smoothed trend makes a SUSTAINED, MATERIAL,
+// and PACED move: at least ~6 weeks long, at least ~2 kg net swing, AND moving at a real
+// bulk/cut pace rather than a slow multi-year drift. This is the flat-data fix — a near-flat
+// history (e.g. 2–4 kg wandered across several YEARS) used to be over-labelled with spurious
+// bands; the rate floor keeps those as "maintain" while still catching a genuine cut/bulk
+// (kilos over a few months). Tuned against real Hevy measurement data (a ~0.008 kg/day drift
+// must NOT label; a real phase runs ~0.03+ kg/day).
+const BULK_CUT_MIN_DAYS = 42; // ~6 weeks sustained
+const BULK_CUT_MIN_DELTA = 2; // ~2 kg net swing over the phase (trend unit, typically kg)
+const BULK_CUT_MIN_RATE = 0.015; // ~0.45 kg/month — below this it's drift, not a phase
 
 /**
- * Segment an EWMA bodyweight trend into sustained up/down/flat phases for neutral chart
- * annotation — "bulk" (sustained rise), "cut" (sustained fall), "maintain" (flat or brief).
- * A zig-zag over the *smoothed* trend finds turning points larger than a noise threshold
- * (scaled to bodyweight), so day-to-day wobble doesn't fragment the phases. Purely
- * descriptive: it labels what the trend did, it does not judge or prescribe. Feed it
+ * Segment an EWMA bodyweight trend into sustained up/down phases for neutral chart
+ * annotation — "bulk" (sustained rise) or "cut" (sustained fall). A zig-zag over the
+ * *smoothed* trend finds turning points larger than a noise threshold (scaled to bodyweight),
+ * so day-to-day wobble doesn't fragment the phases; only segments that are both long enough
+ * and large enough (see thresholds above) are kept — flat/near-flat histories return `[]`.
+ * Purely descriptive: it labels what the trend did, it does not judge or prescribe. Feed it
  * `bodyweightTrend(records).points` (or any `TrendPoint[]`).
  */
 export function bulkCutPhases(trend: TrendPoint[]): BulkCutPhase[] {
@@ -969,10 +1043,15 @@ export function bulkCutPhases(trend: TrendPoint[]): BulkCutPhase[] {
     const delta = b.trend - a.trend;
     const durationDays = Math.round((b.t - a.t) / DAY_MS);
     const dirn = direction(a.trend, b.trend, thr);
-    // A short or barely-moving segment reads as "maintain"; only sustained, directional
-    // moves earn a bulk/cut label.
+    // A short, small-magnitude, or slow-drifting segment reads as "maintain"; only a
+    // sustained (≥6-week), material (≥~2 kg net), AND paced (not a multi-year drift)
+    // directional move earns a bulk/cut label.
+    const rateKgPerDay = durationDays > 0 ? Math.abs(delta) / durationDays : 0;
+    const material = Math.abs(delta) >= BULK_CUT_MIN_DELTA && rateKgPerDay >= BULK_CUT_MIN_RATE;
     const label: BulkCutPhase["label"] =
-      dirn === "flat" || durationDays < BULK_CUT_MIN_DAYS ? "maintain" : dirn === "up" ? "bulk" : "cut";
+      dirn === "flat" || durationDays < BULK_CUT_MIN_DAYS || !material
+        ? "maintain"
+        : dirn === "up" ? "bulk" : "cut";
     phases.push({
       startDay: a.day,
       endDay: b.day,
@@ -986,7 +1065,9 @@ export function bulkCutPhases(trend: TrendPoint[]): BulkCutPhase[] {
       label,
     });
   }
-  return phases;
+  // Only surface material bulk/cut bands; "maintain" segments (flat/short/small) are dropped,
+  // so a near-flat history produces zero phases and the chart shows no spurious bands.
+  return phases.filter((p) => p.label !== "maintain");
 }
 
 // --- 6. insight plan (the selector the UI calls) ---------------------------------------
@@ -1044,27 +1125,15 @@ export function insightPlan(records: LiveRecord[]): InsightPlanResult {
   const bwDays = bw.series.length;
   const bwSpan = spanDays(bw.series.map((p) => p.t));
 
-  const lifts = prTimeline(records);
-  const topLift = lifts[0];
-  const prLifts = lifts.filter((l) => l.sessionCount >= PR_MIN_SESSIONS).length;
-  const e1rmLinePts = topLift ? topLift.series.length : 0;
-  const e1rmSpan = topLift ? spanDays(topLift.series.map((p) => p.dateMs)) : 0;
-
-  const vol = volumeByMuscleGroup(records);
-  const volTrainedWeeks = vol.groups.length
-    ? vol.weekStarts.filter((_, i) => vol.groups.some((g) => g.weekly[i]?.sets > 0)).length
-    : 0;
-  const volTotalSets = vol.groups.reduce((a, g) => a + g.totalSets, 0);
-
   const cal = calisthenicsProgress(records, bw.series);
   const calLifts = cal.filter((c) => c.sessionCount >= PR_MIN_SESSIONS).length;
 
   const end = enduranceTrends(records);
 
-  const rel = relativeStrength(records, bw.series);
-  const relOk = bwDays > 0 && rel.some((r) => r.points.length >= 2);
-
-  // Availability + a reason string per block.
+  // LEAN CONVERTER: the strength-analytics blocks (e1RM/PR timeline, per-muscle volume,
+  // relative strength) are deliberately no longer surfaced here — that on-page interpretation
+  // moved out of the converter (the functions stay in this file, dormant, for other tools).
+  // Availability + a reason string per remaining block.
   const available: Record<InsightBlockId, PlannedBlock | null> = {
     "bodyweight-trend":
       bwDays >= 2 ? { id: "bodyweight-trend", reason: `${bwDays} days of bodyweight` } : null,
@@ -1072,16 +1141,9 @@ export function insightPlan(records: LiveRecord[]): InsightPlanResult {
       bwDays >= BULKCUT_MIN_POINTS && bwSpan >= BULKCUT_MIN_SPAN_DAYS
         ? { id: "bulk-cut", reason: `${Math.round(bwSpan)} days of bodyweight trend` }
         : null,
-    "pr-timeline":
-      prLifts >= 1 && e1rmLinePts >= 1
-        ? { id: "pr-timeline", reason: `${prLifts} lift${prLifts === 1 ? "" : "s"} with ≥${PR_MIN_SESSIONS} sessions` }
-        : null,
-    "relative-strength":
-      relOk ? { id: "relative-strength", reason: "loaded lifts matched to bodyweight" } : null,
-    "volume-muscle-group":
-      volTrainedWeeks >= VOLUME_MIN_WEEKS && volTotalSets >= VOLUME_MIN_SETS
-        ? { id: "volume-muscle-group", reason: `${volTotalSets} sets across ${volTrainedWeeks} weeks` }
-        : null,
+    "pr-timeline": null,
+    "relative-strength": null,
+    "volume-muscle-group": null,
     "calisthenics-progress":
       calLifts >= 1
         ? { id: "calisthenics-progress", reason: `${calLifts} bodyweight movement${calLifts === 1 ? "" : "s"}` }
@@ -1091,17 +1153,14 @@ export function insightPlan(records: LiveRecord[]): InsightPlanResult {
         ? { id: "endurance-trends", reason: `${end.activeWeeks} active weeks over ${end.spanWeeks} weeks` }
         : null,
   };
-  // The e1RM line inside pr-timeline also wants ≥10 pts / ≥14 days to draw; if the top lift is
-  // too sparse for a line we still keep the PR *list* (its own ≥3-session gate), so pr-timeline
-  // stays — the UI simply omits the line. That distinction is left to the UI step.
-  void LINE_MIN_POINTS; void LINE_MIN_SPAN_DAYS; void e1rmLinePts; void e1rmSpan;
 
-  // Profile-driven ordering. Filtered to available blocks, order preserved.
+  // Profile-driven ordering. Filtered to available blocks, order preserved. The dormant
+  // strength-analytics ids are omitted from every order (the converter never renders them).
   const orderByProfile: Record<Profile, InsightBlockId[]> = {
-    strength: ["pr-timeline", "volume-muscle-group", "relative-strength", "bodyweight-trend", "bulk-cut", "calisthenics-progress", "endurance-trends"],
-    calisthenics: ["calisthenics-progress", "relative-strength", "pr-timeline", "bodyweight-trend", "bulk-cut", "volume-muscle-group", "endurance-trends"],
-    endurance: ["endurance-trends", "bodyweight-trend", "bulk-cut", "pr-timeline", "volume-muscle-group", "relative-strength", "calisthenics-progress"],
-    mixed: ["bodyweight-trend", "pr-timeline", "endurance-trends", "calisthenics-progress", "volume-muscle-group", "relative-strength", "bulk-cut"],
+    strength: ["bodyweight-trend", "bulk-cut", "calisthenics-progress", "endurance-trends"],
+    calisthenics: ["calisthenics-progress", "bodyweight-trend", "bulk-cut", "endurance-trends"],
+    endurance: ["endurance-trends", "bodyweight-trend", "bulk-cut", "calisthenics-progress"],
+    mixed: ["bodyweight-trend", "endurance-trends", "calisthenics-progress", "bulk-cut"],
   };
 
   const blocks: PlannedBlock[] = [];
@@ -1110,4 +1169,52 @@ export function insightPlan(records: LiveRecord[]): InsightPlanResult {
     if (b) blocks.push(b);
   }
   return { profile, blocks };
+}
+
+// --- 7. lean converter: taste selection + present record-type sections ------------------
+//
+// The lean converter shows exactly ONE small "taste" chart and groups the parsed data by
+// record type. Both decisions are pure over the merged records so the client renderer and the
+// node smoke test agree on what gets shown.
+
+/** DOM-free "does this Session carry sets" test — mirrors the client's `hasSets`. */
+function sessionHasSets(rec: LiveRecord): boolean {
+  const r = rec as unknown as { exercises?: unknown[]; blocks?: unknown[] };
+  return (r.exercises?.length ?? 0) > 0 || (r.blocks?.length ?? 0) > 0;
+}
+
+export type TasteChoice = "bodyweight" | "consistency" | "distance" | "none";
+
+/**
+ * Which single "taste" chart the lean converter should show, from the merged records: a
+ * body-measurement-dominant history leads with the bodyweight trend, an endurance-dominant
+ * one with weekly distance, and a workout-dominant one with weekly consistency.
+ */
+export function tasteChoice(records: LiveRecord[]): TasteChoice {
+  const bwOk = dailyBodyMass(records).series.length >= 2;
+  const sessions = records.filter((r) => r.recordType === "Session");
+  const sessionsN = sessions.length;
+  const measN = records.filter((r) => r.recordType === "Measurement").length;
+  if (bwOk && (sessionsN === 0 || measN >= sessionsN)) return "bodyweight";
+  if (sessionsN === 0) return bwOk ? "bodyweight" : "none";
+  const strengthN = sessions.filter(sessionHasSets).length;
+  const enduranceN = sessionsN - strengthN;
+  const profile = detectActivityProfile(records).profile;
+  if (profile === "endurance" || (enduranceN > strengthN && enduranceN > 0)) return "distance";
+  return "consistency";
+}
+
+export type DataSectionKind = "measurements" | "strength" | "endurance";
+
+/** Which record-type data sections are present in the merged records, in display order. */
+export function presentSections(records: LiveRecord[]): DataSectionKind[] {
+  const out: DataSectionKind[] = [];
+  const measN = records.filter((r) => r.recordType === "Measurement").length;
+  const sessions = records.filter((r) => r.recordType === "Session");
+  const strengthN = sessions.filter(sessionHasSets).length;
+  const enduranceN = sessions.length - strengthN;
+  if (measN > 0) out.push("measurements");
+  if (strengthN > 0) out.push("strength");
+  if (enduranceN > 0) out.push("endurance");
+  return out;
 }

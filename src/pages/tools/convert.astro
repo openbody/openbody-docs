@@ -25,6 +25,9 @@ import { Aside } from "@astrojs/starlight/components";
     tableOfContents: false,
   }}
 >
+  {/* Marketing chrome: hidden by the client script once a result is showing (the result
+      view takes over the same page), restored on "Start over". */}
+  <div class="ob-marketing">
   <p><span class="ob-status">EXPERIMENTAL · pre-v1.0 tool</span></p>
 
   <p class="ob-lede">
@@ -108,6 +111,7 @@ import { Aside } from "@astrojs/starlight/components";
       JSON — and, for lifting exports, a Strong-format CSV that both Strong and Hevy can
       import.</li>
   </ol>
+  </div>
 
   <div id="convert-tool" class="ob-tool">
     <label id="drop-zone" for="file-input" class="ob-dropzone">
@@ -117,7 +121,7 @@ import { Aside } from "@astrojs/starlight/components";
         multiple
         accept=".csv,.xml,.json,text/csv,text/xml,application/xml,application/json"
       />
-      <span class="ob-dropzone-title">Choose one or more export files, or drag them here</span>
+      <span id="ob-dropzone-title" class="ob-dropzone-title">Choose one or more export files, or drag them here</span>
       <span class="ob-dropzone-sub">Hevy workout CSV · Hevy measurement CSV · Strong CSV · Apple Health export.xml · Strava activities.csv · an OpenBody JSON you exported earlier</span>
       <span class="ob-dropzone-sub">Add files from several apps and they merge into one history. Nothing is uploaded — it all runs in your browser.</span>
     </label>
@@ -185,6 +189,7 @@ import { Aside } from "@astrojs/starlight/components";
     </div>
   </div>
 
+  <div class="ob-marketing">
   <h2>What is "OpenBody JSON"?</h2>
   <p>
     The downloaded file is an array of OpenBody records — <code>Session</code> records for
@@ -195,6 +200,7 @@ import { Aside } from "@astrojs/starlight/components";
     own. Move it between tools, check it into your own backup, or feed it to anything else
     that speaks OpenBody.
   </p>
+  </div>
 
   <script>
     import "../../scripts/convert-tool";
@@ -1234,5 +1240,139 @@ import { Aside } from "@astrojs/starlight/components";
     @media (prefers-reduced-motion: reduce) {
       .ob-cov-seg { transition: none; }
     }
+
+    /* ===================================================================================
+       LEAN CONVERTER (OB-92) — the result view: export is the hero, one small "taste"
+       chart, data grouped by record type, an ecosystem handoff. Quiet and legible; the
+       boldness is spent on the export CTA + the single taste chart. Both themes.
+       ================================================================================== */
+
+    /* Marketing chrome hides while a result is showing (result view takes over the page). */
+    .ob-marketing[hidden] { display: none; }
+
+    /* Dropzone collapses to a small "＋ Add another file" control in the result view. */
+    .ob-dropzone.is-compact {
+      flex-direction: row;
+      padding: 0.7rem 1rem;
+      border-width: 1px;
+      width: fit-content;
+      gap: 0.5rem;
+    }
+    .ob-dropzone.is-compact .ob-dropzone-title { font-size: var(--sl-text-sm); }
+    .ob-dropzone.is-compact .ob-dropzone-sub { display: none; }
+
+    /* Result header: heading + "Start over". */
+    .ob-lean-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .ob-lean-h {
+      margin: 0;
+      font-size: clamp(1.3rem, 3vw, 1.8rem);
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: var(--sl-color-white);
+    }
+    .ob-lean-h:focus-visible { outline: 2px solid var(--sl-color-accent); outline-offset: 3px; border-radius: 4px; }
+    .ob-startover { padding: 0.35rem 0.7rem; }
+
+    /* Export hero — the moment. Accent-forward, prominent, top of the result. */
+    .ob-lean-export {
+      border: 1px solid color-mix(in srgb, var(--sl-color-accent) 45%, var(--sl-color-hairline));
+      border-radius: 0.7rem;
+      padding: 1.25rem 1.4rem;
+      background-color: color-mix(in srgb, var(--sl-color-accent) 6%, var(--sl-color-bg-nav));
+    }
+    .ob-lean-export-head { margin-bottom: 0.9rem; }
+    .ob-lean-export-h { margin: 0; font-size: var(--sl-text-lg); font-weight: 600; color: var(--sl-color-white); }
+    .ob-lean-export-sub { margin: 0.25rem 0 0; font-size: var(--sl-text-sm); color: var(--sl-color-gray-2); max-width: 60ch; }
+    .ob-lean-export-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; }
+    .ob-btn-lg { font-size: var(--sl-text-base); padding: 0.7rem 1.4rem; }
+    .ob-lean-export-meta {
+      margin: 0.85rem 0 0;
+      font-family: var(--sl-font-mono);
+      font-size: var(--sl-text-xs);
+      color: var(--sl-color-gray-2);
+      font-variant-numeric: tabular-nums;
+    }
+    .ob-lean-strong { margin-top: 0.85rem; font-size: var(--sl-text-sm); }
+    .ob-lean-strong > summary { cursor: pointer; font-weight: 600; color: var(--sl-color-gray-2); width: max-content; }
+    .ob-lean-strong-body { margin-top: 0.6rem; }
+
+    /* The one "taste" card: aha sentence + nothing-lost proof + a single small chart. */
+    .ob-lean-taste { display: flex; flex-direction: column; gap: 0.4rem; }
+    .ob-lean-aha {
+      margin: 0;
+      font-size: var(--sl-text-lg);
+      font-weight: 500;
+      line-height: 1.35;
+      letter-spacing: -0.01em;
+      color: var(--sl-color-gray-2);
+      max-width: 46ch;
+      text-wrap: balance;
+    }
+    .ob-lean-aha .ob-hl { color: var(--sl-color-white); font-weight: 600; font-variant-numeric: tabular-nums; }
+    .ob-lean-nothinglost {
+      display: flex;
+      gap: 0.45rem;
+      align-items: baseline;
+      margin: 0.3rem 0 0.4rem;
+      font-size: var(--sl-text-sm);
+      color: var(--sl-color-gray-2);
+    }
+    .ob-lean-nothinglost .ob-take-ico { color: #2e955f; font-weight: 700; flex: none; }
+    :root:not([data-theme="light"]) .ob-lean-nothinglost .ob-take-ico { color: #4fbb84; }
+    .ob-lean-taste-note {
+      margin: 0.5rem 0 0;
+      font-size: var(--sl-text-xs);
+      color: var(--sl-color-gray-3);
+      font-style: italic;
+    }
+
+    /* Your data — grouped by record type, collapsible. The honest "here's your data" proof. */
+    .ob-lean-data-h {
+      margin: 0.4rem 0 0;
+      font-size: var(--sl-text-lg);
+      font-weight: 600;
+      color: var(--sl-color-white);
+    }
+    .ob-lean-section {
+      border: 1px solid var(--sl-color-hairline);
+      border-radius: 0.55rem;
+      background-color: var(--sl-color-bg-nav);
+    }
+    .ob-lean-section-sum {
+      cursor: pointer;
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.75rem 1rem;
+      font-weight: 600;
+      color: var(--sl-color-white);
+    }
+    .ob-lean-section-title { font-size: var(--sl-text-base); }
+    .ob-lean-section-n {
+      font-family: var(--sl-font-mono);
+      font-size: var(--sl-text-xs);
+      font-weight: 500;
+      color: var(--sl-color-gray-3);
+      font-variant-numeric: tabular-nums;
+    }
+    .ob-lean-section-body { padding: 0 1rem 1rem; display: flex; flex-direction: column; gap: 1rem; }
+    .ob-lean-raw { font-size: var(--sl-text-sm); }
+    .ob-lean-raw > summary { cursor: pointer; font-weight: 600; color: var(--sl-color-gray-2); }
+
+    /* Ecosystem handoff — "Now visualize it →". */
+    .ob-lean-eco {
+      border-style: dashed;
+      border-color: color-mix(in srgb, var(--sl-color-accent) 40%, var(--sl-color-hairline));
+    }
+    .ob-lean-eco-h { margin: 0 0 0.4rem; font-size: var(--sl-text-lg); font-weight: 600; color: var(--sl-color-white); }
+    .ob-lean-eco-p { margin: 0; font-size: var(--sl-text-sm); color: var(--sl-color-gray-2); max-width: 68ch; }
+    .ob-lean-eco-link { font-weight: 600; white-space: nowrap; }
   </style>
 </StarlightPage>

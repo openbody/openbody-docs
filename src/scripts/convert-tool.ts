@@ -32,23 +32,18 @@
     } from "../components/convert-sources";
     import {
       bodyweightTrend,
-      dailyBodyMass,
       measurementTable,
       type BodyweightTrend,
       type MeasurementTable,
-      type DailyValue,
     } from "../components/insights";
     import {
-      insightPlan,
-      prTimeline,
-      relativeStrength,
-      volumeByMuscleGroup,
-      calisthenicsProgress,
       enduranceTrends,
+      consistencyTrend,
       bulkCutPhases,
       collectStrengthSets,
-      type InsightPlanResult,
-      type PlannedBlock,
+      tasteChoice,
+      presentSections,
+      type DataSectionKind,
     } from "../components/analysis";
 
     const fileInput = document.getElementById("file-input") as HTMLInputElement;
@@ -69,6 +64,15 @@
     const emailDismiss = document.getElementById("email-dismiss") as HTMLButtonElement;
 
     const layersEl = document.getElementById("layers") as HTMLElement;
+
+    // Lean-converter view-swap refs: the marketing chrome (intro/supported/how-it-works/
+    // explainer) collapses when a result is showing, and the dropzone shrinks to a small
+    // "＋ Add another file" control. Both restore on "Start over".
+    const marketingEls = Array.from(
+      document.querySelectorAll<HTMLElement>(".ob-marketing"),
+    );
+    const dropTitleEl = document.getElementById("ob-dropzone-title") as HTMLElement | null;
+    const DROP_TITLE_DEFAULT = "Choose one or more export files, or drag them here";
 
     // --- Phase B state: an accumulator of source "layers" ---------------------------------
     // Phase A converted ONE upload at a time. Phase B keeps every upload as a "layer" and the
@@ -129,10 +133,14 @@
       return isNaN(d.getTime()) ? iso : d.toLocaleDateString(undefined, { dateStyle: "medium" });
     }
 
-    const SPARK_METRIC_LABEL = { sets: "Sets", km: "Distance (km)", hours: "Hours" } as const;
+    const SPARK_METRIC_LABEL = {
+      sets: "Sets", km: "Distance (km)", hours: "Hours", workouts: "Workouts",
+    } as const;
+    type SparkMetric = keyof typeof SPARK_METRIC_LABEL;
 
-    function sparkValueLabel(value: number, metric: "sets" | "km" | "hours"): string {
+    function sparkValueLabel(value: number, metric: SparkMetric): string {
       if (metric === "sets") return `${value} set${value === 1 ? "" : "s"}`;
+      if (metric === "workouts") return `${value} workout${value === 1 ? "" : "s"}`;
       if (metric === "km") return `${value.toFixed(1)} km`;
       return formatHoursMinutes(value * 3600);
     }
@@ -144,7 +152,7 @@
     function buildSparkline(
       points: WeeklyPoint[],
       bucket: "week" | "month",
-      metric: "sets" | "km" | "hours",
+      metric: SparkMetric,
       containerWidth: number,
     ): SVGSVGElement {
       const NS = "http://www.w3.org/2000/svg";
@@ -366,27 +374,6 @@
       return svg;
     }
 
-    // Lazily-built "View raw records" expander: the full mapped OpenBody records as JSON,
-    // reachable but never the default surface. JSON.stringify runs only on first expand so a
-    // large record set never costs anything unless asked for. Still 100% client-side.
-    function appendRawRecords(container: HTMLElement, records: unknown[]) {
-      const details = document.createElement("details");
-      details.className = "ob-raw";
-      const summary = document.createElement("summary");
-      const n = records.length;
-      summary.textContent = `View raw records (${n} OpenBody record${n === 1 ? "" : "s"} as JSON)`;
-      const pre = document.createElement("pre");
-      pre.className = "ob-raw-json";
-      details.append(summary, pre);
-      let built = false;
-      details.addEventListener("toggle", () => {
-        if (details.open && !built) {
-          pre.textContent = JSON.stringify(records, null, 2);
-          built = true;
-        }
-      });
-      container.append(details);
-    }
 
     const TOP_MOVEMENTS_SHOWN = 5;
 
@@ -999,7 +986,12 @@
       const errCount = results.length - okCount;
       const kind = okCount === 0 ? "error" : errCount ? "info" : "success";
       setStatus(results.map((r) => r.message).join("  "), kind);
-      if (okCount > 0) emailCapture.hidden = false;
+      if (okCount > 0) {
+        emailCapture.hidden = false;
+        // Move focus to the result heading so the view swap is announced and keyboard/screen-
+        // reader users land in the new content (not left on the file input above the fold).
+        if (layers.length > 0) document.getElementById("ob-result-heading")?.focus();
+      }
     }
 
     // --- render: the whole surface is a MERGE of the enabled layers ---------------------
@@ -1076,12 +1068,7 @@
       : kg >= 1e3 ? { v: nf1.format(kg / 1e3), unit: "k kg" }
       : { v: nf0.format(kg), unit: "kg" };
 
-    // --- reusable card furniture (takeaway / caveat / confidence chip) -------------------
-    function cardShell(extra?: string): HTMLElement {
-      const c = el("section", "ob-card" + (extra ? " " + extra : ""));
-      previewEl.append(c);
-      return c;
-    }
+    // --- reusable card furniture (takeaway + chart wrapper) ------------------------------
     function takeaway(icon: string, ...nodes: (Node | string)[]): HTMLElement {
       const p = el("p", "ob-takeaway");
       const ico = el("span", "ob-take-ico", icon);
@@ -1089,13 +1076,6 @@
       const strong = el("b");
       strong.append(...nodes);
       p.append(ico, strong);
-      return p;
-    }
-    function caveat(text: string): HTMLElement {
-      const p = el("p", "ob-caveat");
-      const ico = el("span", "ob-caveat-ico", "ⓘ");
-      ico.setAttribute("aria-hidden", "true");
-      p.append(ico, document.createTextNode(" " + text));
       return p;
     }
     function chartWrap(host: HTMLElement): HTMLElement {
@@ -1106,21 +1086,42 @@
     function chartWidth(wrap: HTMLElement): number {
       return Math.max(280, Math.min(wrap.clientWidth || 640, 760));
     }
-    function cardHead(host: HTMLElement, title: string, subText?: string): HTMLElement {
-      const head = el("div", "ob-card-head");
-      head.append(el("h3", "ob-card-h", title));
-      if (subText) head.append(el("p", "ob-card-sub", subText));
-      host.append(head);
-      return head;
-    }
 
     // --- entry point ---------------------------------------------------------------------
+    // The lean converter. Its job is to PROVE an export becomes clean, portable OpenBody data
+    // and then hand off — not to be an analytics dashboard. On a successful parse the result
+    // view takes over the page (marketing chrome hidden, dropzone collapsed) with the export
+    // as the hero, one small "taste" chart, the parsed data grouped by record type, and an
+    // ecosystem handoff. All client-side; nothing is uploaded and nothing goes in the URL.
     function renderAll() {
-      renderCockpit();
+      renderResult();
     }
 
-    function renderCockpit() {
-      // Reset the legacy fixed regions (unused by the cockpit) and the single render canvas.
+    // Collapse the marketing chrome + shrink the dropzone once a result is showing.
+    function enterResultChrome() {
+      for (const m of marketingEls) m.hidden = true;
+      dropZone.classList.add("is-compact");
+      if (dropTitleEl) dropTitleEl.textContent = "＋ Add another file";
+    }
+    // Restore the upload/marketing view (used on "Start over" / empty state).
+    function exitResultChrome() {
+      for (const m of marketingEls) m.hidden = false;
+      dropZone.classList.remove("is-compact");
+      if (dropTitleEl) dropTitleEl.textContent = DROP_TITLE_DEFAULT;
+    }
+
+    // Clear all state and return to the upload/marketing view.
+    function startOverReset() {
+      layers = [];
+      fileInput.value = "";
+      statusEl.hidden = true;
+      emailCapture.hidden = true;
+      renderAll();
+      document.getElementById("drop-zone")?.focus();
+    }
+
+    function renderResult() {
+      // Reset the legacy fixed regions (unused by the lean view) and the single render canvas.
       for (const region of [summaryEl, resolutionEl, strongInfoEl]) {
         region.replaceChildren();
         region.hidden = true;
@@ -1136,12 +1137,13 @@
 
       if (layers.length === 0) {
         previewEl.hidden = true;
+        exitResultChrome();
         return;
       }
+      enterResultChrome();
       previewEl.hidden = false;
 
       const enabled = layers.filter((l) => l.enabled);
-      const sourcesCount = new Set(enabled.map((l) => srcKey(l.source))).size;
       let merged: any[] | null = null;
       let stats: MergeStats | null = null;
       if (enabled.length > 0) {
@@ -1159,17 +1161,27 @@
       }
 
       const trend = merged ? bodyweightTrend(merged) : null;
-      const bwSeries: DailyValue[] = merged ? dailyBodyMass(merged).series : [];
-      const plan: InsightPlanResult | null = merged ? insightPlan(merged) : null;
 
-      // 1. COVERAGE HERO + 2. MERGE RECEIPT STRIP (only when there's data to describe).
+      // 0. RESULT HEADER (focus target) + "Start over".
+      buildResultHeader();
+
+      const strengthSessions = merged
+        ? merged.filter((r) => r.recordType === "Session" && hasSets(r)) : [];
+      const enduranceSessions = merged
+        ? merged.filter((r) => r.recordType === "Session" && !hasSets(r)) : [];
+      const measurements = merged ? merged.filter((r) => r.recordType === "Measurement") : [];
+      if (strengthSessions.length > 0) lastStrong = mapOpenBodyToStrong(strengthSessions as any);
+
+      // 1. EXPORT — the hero, top of the result, unmissable.
       if (merged && merged.length > 0) {
-        buildHero(merged, trend, sourcesCount);
-        if (stats) buildMergeStrip(stats);
+        buildExportHero(merged, strengthSessions.length > 0);
+        downloadBtn.hidden = false;
+        downloadStrongBtn.hidden = strengthSessions.length === 0;
       }
 
-      // 3. SOURCE CHIPS — always, so an all-off view can be toggled back on.
+      // 2. SOURCE TOGGLES + MERGE RECEIPT — kept near the top; toggling never loses data.
       buildChips();
+      if (merged && merged.length > 0 && stats) buildMergeStrip(stats);
 
       if (!merged || merged.length === 0) {
         previewEl.append(el(
@@ -1181,70 +1193,145 @@
         return;
       }
 
-      const strengthSessions = merged.filter((r) => r.recordType === "Session" && hasSets(r));
-      const enduranceSessions = merged.filter((r) => r.recordType === "Session" && !hasSets(r));
-      const measurements = merged.filter((r) => r.recordType === "Measurement");
-      if (strengthSessions.length > 0) lastStrong = mapOpenBodyToStrong(strengthSessions as any);
-
-      // 4. STAT TILES (facts only, no composite scores).
-      buildTiles(strengthSessions, enduranceSessions, measurements, merged, trend);
-
-      // 5. BODYWEIGHT EWMA HERO CHART (the signature chart, with bulk/cut phase bands).
-      //    This IS the render of the plan's bodyweight-trend + bulk-cut blocks.
-      if (trend && trend.points.length >= 2) buildBodyweightCard(trend);
-
-      // 6. PROFILE-DRIVEN INSIGHT CARDS — exactly plan.blocks, in plan order. bodyweight-trend
-      //    and bulk-cut are already shown as the hero above, so they're skipped here.
-      for (const block of plan!.blocks) {
-        if (block.id === "bodyweight-trend" || block.id === "bulk-cut") continue;
-        buildInsightCard(block, merged, bwSeries);
-      }
-
-      // 7. DETAILS & RAW RECORDS — collapsed; preserves every Phase A/B surface intact.
-      buildDetails(merged, strengthSessions, enduranceSessions, measurements);
-
-      // 8. THREE-TIER IMPORT NOTES.
+      // 3. IMPORT NOTES (three-tier: clean / info / warning) — trust, near the export.
       buildNotes(enabled, strengthSessions, measurements);
 
-      // 9. EXPORT BAR — relocates the real download buttons so their handlers survive.
-      buildExportBar(merged, strengthSessions.length > 0);
-      downloadBtn.hidden = false;
-      downloadStrongBtn.hidden = strengthSessions.length === 0;
+      // 4. ONE LIGHT "TASTE" — the aha sentence, the nothing-lost proof, ONE small chart.
+      buildTaste(merged, trend, strengthSessions, enduranceSessions, measurements, stats);
+
+      // 5. YOUR DATA — collapsible sections per record type + raw openbody.json.
+      buildDataSections(merged, strengthSessions, enduranceSessions, measurements);
+
+      // 6. ECOSYSTEM HANDOFF — take the file to any OpenBody-compatible tool to visualize.
+      buildEcosystem();
     }
 
-    // --- 1. coverage hero ----------------------------------------------------------------
-    function buildHero(merged: any[], trend: BodyweightTrend | null, sourcesCount: number) {
-      const hero = el("section", "ob-hero");
-      hero.setAttribute("aria-label", "Your unified training history");
-      hero.append(el("p", "ob-hero-eyebrow", "Your history, unified"));
+    // --- 0. result header ----------------------------------------------------------------
+    function buildResultHeader() {
+      const head = el("div", "ob-lean-head");
+      const h = el("h2", "ob-lean-h", "Your data, converted");
+      h.id = "ob-result-heading";
+      h.tabIndex = -1;
+      const startOver = el("button", "ob-btn ob-btn-ghost ob-startover", "↺ Start over");
+      startOver.type = "button";
+      startOver.addEventListener("click", startOverReset);
+      head.append(h, startOver);
+      previewEl.append(head);
+    }
 
+    function formatBytes(bytes: number): string {
+      if (bytes >= 1024 * 1024) return `${nf1.format(bytes / (1024 * 1024))} MB`;
+      if (bytes >= 1024) return `${nf0.format(bytes / 1024)} KB`;
+      return `${nf0.format(bytes)} bytes`;
+    }
+
+    // --- 1. export hero (the moment) -----------------------------------------------------
+    // Relocates the real download buttons (their click handlers live on the nodes, so moving
+    // them preserves behaviour) into a prominent block at the very top of the result.
+    function buildExportHero(merged: any[], hasStrength: boolean) {
+      const section = el("section", "ob-lean-export");
+      section.setAttribute("aria-label", "Download your OpenBody data");
+
+      const head = el("div", "ob-lean-export-head");
+      head.append(el("h3", "ob-lean-export-h", "Your OpenBody file is ready"));
+      head.append(el("p", "ob-lean-export-sub",
+        "Clean, portable JSON — the same wire format every OpenBody tool reads."));
+      section.append(head);
+
+      const actions = el("div", "ob-lean-export-actions");
+      downloadBtn.textContent = "Download openbody.json";
+      downloadBtn.className = "ob-btn ob-btn-primary ob-btn-lg";
+      actions.append(downloadBtn);
+      if (hasStrength) {
+        downloadStrongBtn.textContent = "Export as Strong CSV";
+        downloadStrongBtn.className = "ob-btn ob-btn-secondary";
+        actions.append(downloadStrongBtn);
+      }
+      section.append(actions);
+
+      const bytes = new Blob([JSON.stringify(merged, null, 2)]).size;
+      const meta = el("p", "ob-lean-export-meta");
+      meta.textContent =
+        `${nf0.format(merged.length)} record${merged.length === 1 ? "" : "s"} · ` +
+        `${formatBytes(bytes)} · 🔒 built in your browser, nothing uploaded`;
+      section.append(meta);
+
+      // Strong-CSV fidelity notes + omissions, tucked into a collapsible.
+      if (hasStrength && lastStrong) {
+        const det = el("details", "ob-lean-strong");
+        det.append(el("summary", undefined, "About the Strong CSV export"));
+        const host = el("div", "ob-lean-strong-body");
+        renderStrongInfo(lastStrong, host);
+        det.append(host);
+        section.append(det);
+      }
+
+      previewEl.append(section);
+    }
+
+    // --- highlighted number helper (shared by the aha sentence) --------------------------
+    const hlNum = (t: string) => el("b", "ob-hl", t);
+
+    // --- 4. the "taste": aha sentence + nothing-lost proof + ONE small chart -------------
+    function buildTaste(
+      merged: any[], trend: BodyweightTrend | null,
+      strengthSessions: any[], enduranceSessions: any[], _measurements: any[],
+      stats: MergeStats | null,
+    ) {
+      const section = el("section", "ob-lean-taste ob-card");
+
+      // The generated "aha" sentence.
+      section.append(buildAhaSentence(merged, trend));
+      // The coverage / "nothing lost" proof line.
+      section.append(buildNothingLost(merged, stats));
+
+      // Exactly ONE profile-chosen trend chart — a taste, not a dashboard.
+      const taste = tasteChoice(merged);
+      let rendered = false;
+      if (taste === "bodyweight" && trend && trend.points.length >= 2) {
+        buildBwTaste(section, trend); rendered = true;
+      } else if (taste === "distance") {
+        rendered = buildDistanceTaste(section, merged);
+        if (!rendered && strengthSessions.length + enduranceSessions.length > 0) {
+          rendered = buildConsistencyTaste(section, merged);
+        }
+      } else if (taste === "consistency") {
+        rendered = buildConsistencyTaste(section, merged);
+      }
+
+      if (rendered) {
+        section.append(el("p", "ob-lean-taste-note",
+          "A quick look — full analysis is what other OpenBody-compatible tools are for."));
+      }
+      previewEl.append(section);
+    }
+
+    function buildAhaSentence(merged: any[], trend: BodyweightTrend | null): HTMLElement {
       const sessions = merged.filter((r) => r.recordType === "Session").length;
       const sets = collectStrengthSets(merged).length;
       const meas = merged.filter((r) => r.recordType === "Measurement").length;
+      const sourcesCount = new Set(layers.filter((l) => l.enabled).map((l) => srcKey(l.source))).size;
       const span = timeSpan(merged);
-      const hl = (t: string) => el("b", "ob-hl", t);
 
-      const h = el("h2", "ob-hero-headline");
+      const h = el("p", "ob-lean-aha");
       if (span) {
-        h.append(hl(spanLabel(span.min, span.max)));
-        h.append(document.createTextNode(sessions > 0 ? " of training" : " of body-composition history"));
+        h.append(hlNum(spanLabel(span.min, span.max)));
+        h.append(document.createTextNode(sessions > 0 ? " of training" : " of body history"));
       } else {
         h.append(document.createTextNode(sessions > 0 ? "Your training" : "Your body history"));
       }
       h.append(document.createTextNode(", from "));
-      h.append(hl(`${sourcesCount} app${sourcesCount === 1 ? "" : "s"}`));
-      h.append(document.createTextNode(", in one place"));
+      h.append(hlNum(`${sourcesCount} app${sourcesCount === 1 ? "" : "s"}`));
+      h.append(document.createTextNode(", now in one portable file"));
 
       const tail: (Node | string)[][] = [];
-      if (sessions > 0) tail.push([hl(nf0.format(sessions)), ` workout${sessions === 1 ? "" : "s"}`]);
-      if (sets > 0) tail.push([hl(nf0.format(sets)), ` set${sets === 1 ? "" : "s"}`]);
-      if (sessions === 0 && meas > 0) {
-        tail.push([hl(nf0.format(meas)), ` measurement${meas === 1 ? "" : "s"}`]);
-      }
+      if (sessions > 0) tail.push([hlNum(nf0.format(sessions)), ` workout${sessions === 1 ? "" : "s"}`]);
+      if (sets > 0) tail.push([hlNum(nf0.format(sets)), ` set${sets === 1 ? "" : "s"}`]);
+      if (sessions === 0 && meas > 0) tail.push([hlNum(nf0.format(meas)), ` measurement${meas === 1 ? "" : "s"}`]);
       if (trend) {
         tail.push([
-          "bodyweight from ", hl(nf1.format(trend.first.trend)),
-          " to ", hl(`${nf1.format(trend.last.trend)}${THIN}${trend.unit}`),
+          "bodyweight from ", hlNum(nf1.format(trend.first.trend)),
+          " to ", hlNum(`${nf1.format(trend.last.trend)}${THIN}${trend.unit}`),
         ]);
       }
       if (tail.length > 0) {
@@ -1255,61 +1342,160 @@
         });
       }
       h.append(document.createTextNode("."));
-      hero.append(h);
-
-      const subBits: string[] = [];
-      if (span) subBits.push(`${monthYear(span.min)} – ${monthYear(span.max)}`);
-      subBits.push(`${sourcesCount} source${sourcesCount === 1 ? "" : "s"} merged`);
-      subBits.push("nothing left your browser");
-      hero.append(el("p", "ob-hero-sub", subBits.join(" · ")));
-
-      const cov = buildCoverage();
-      if (cov) hero.append(cov);
-      previewEl.append(hero);
+      return h;
     }
 
-    /** One lane per source (enabled + disabled), coloured by identity, on a shared time axis. */
-    function buildCoverage(): HTMLElement | null {
-      const laneData = layers
-        .map((l) => ({ layer: l, span: timeSpan(l.records) }))
-        .filter((x): x is { layer: Layer; span: { min: number; max: number } } => x.span !== null);
-      if (laneData.length === 0) return null;
-      let T0 = Infinity, T1 = -Infinity;
-      for (const { span } of laneData) { T0 = Math.min(T0, span.min); T1 = Math.max(T1, span.max); }
-      const range = Math.max(1, T1 - T0);
-
-      const fig = el("figure", "ob-cov");
-      fig.setAttribute(
-        "aria-label",
-        "Date coverage by source: " +
-          laneData.map((x) => `${x.layer.label}, ${monthYear(x.span.min)} to ${monthYear(x.span.max)}`)
-            .join("; ") + ".",
-      );
-      const lanes = el("div", "ob-cov-lanes");
-      for (const { layer, span } of laneData) {
-        const lane = el("div", "ob-cov-lane" + (layer.enabled ? "" : " is-off"));
-        const seg = el("span", "ob-cov-seg");
-        seg.style.left = `${((span.min - T0) / range) * 100}%`;
-        seg.style.width = `${Math.max(1.5, ((span.max - span.min) / range) * 100)}%`;
-        seg.style.background = srcVar(layer.source);
-        seg.title = `${layer.label}: ${monthYear(span.min)} – ${monthYear(span.max)}`;
-        lane.append(seg);
-        lanes.append(lane);
+    function buildNothingLost(merged: any[], stats: MergeStats | null): HTMLElement {
+      const p = el("p", "ob-lean-nothinglost");
+      const ico = el("span", "ob-take-ico", "✓");
+      ico.setAttribute("aria-hidden", "true");
+      p.append(ico);
+      const bits: string[] = [`${nf0.format(merged.length)} record${merged.length === 1 ? "" : "s"} kept`];
+      if (stats && stats.exactCollapsed > 0) {
+        bits.push(`${nf0.format(stats.exactCollapsed)} exact duplicate${stats.exactCollapsed === 1 ? "" : "s"} merged`);
       }
-      fig.append(lanes);
+      const span = timeSpan(merged);
+      const cover = span ? `${monthYear(span.min)} – ${monthYear(span.max)}, ` : "";
+      p.append(document.createTextNode(` Nothing lost: ${cover}${bits.join(", ")}, nothing deleted.`));
+      return p;
+    }
 
-      const axis = el("figcaption", "ob-cov-axis");
-      const startY = new Date(T0).getUTCFullYear();
-      const endY = new Date(T1).getUTCFullYear();
-      const step = Math.max(1, Math.ceil((endY - startY + 1) / 6));
-      for (let y = startY; y <= endY; y += step) {
-        const pos = ((Date.UTC(y, 0, 1) - T0) / range) * 100;
-        const tick = el("span", "ob-cov-tick", String(y));
-        tick.style.left = `${Math.min(98, Math.max(0, pos))}%`;
-        axis.append(tick);
+    // Bodyweight EWMA taste chart (body-measurement-dominant history).
+    function buildBwTaste(host: HTMLElement, trend: BodyweightTrend) {
+      const wrap = chartWrap(host);
+      const phases = bulkCutPhases(trend.points)
+        .map((p) => ({ startMs: p.startMs, endMs: p.endMs, label: p.label }));
+      wrap.append(buildLineChart(
+        trend.points.map((p) => ({ t: p.t, raw: p.value, trend: p.trend })),
+        { unit: trend.unit, label: "Bodyweight trend", containerWidth: chartWidth(wrap), phases },
+      ));
+
+      // Bug fix #1: on near-flat data the smoothed monthly rate rounds to ~0, so "about 0 kg
+      // a month" reads broken. When the rate rounds below ~0.1 (or the net change is tiny),
+      // say the weight held roughly steady over the span; otherwise report one decimal.
+      const delta = trend.last.trend - trend.first.trend;
+      const spanDays = seriesSpanDays(trend.points.map((p) => ({ dateMs: p.t })));
+      const months = spanDays / 30.44;
+      const perMonth = months >= 1 ? Math.abs(delta) / months : 0;
+      const spanWords = spanLabel(trend.first.t, trend.last.t);
+      const steady = perMonth < 0.1 || Math.abs(delta) < 0.5;
+      host.append(takeaway(
+        steady ? "→" : delta < 0 ? "↘" : "↗",
+        steady
+          ? `Bodyweight held roughly steady around ${nf1.format(trend.last.trend)}${THIN}${trend.unit} over ${spanWords}.`
+          : `Trending ${delta < 0 ? "down" : "up"} — about ${nf1.format(perMonth)}${THIN}${trend.unit} a month over ${spanWords}.`,
+      ));
+    }
+
+    // Consistency taste chart (workout-dominant history): workouts per week.
+    function buildConsistencyTaste(host: HTMLElement, merged: any[]): boolean {
+      const ct = consistencyTrend(merged);
+      if (ct.weekly.length === 0) return false;
+      const wrap = chartWrap(host);
+      wrap.append(buildSparkline(
+        ct.weekly.map((w) => ({ bucketStart: w.weekStart, value: w.sessions })),
+        "week", "workouts", chartWidth(wrap),
+      ));
+      const spanWords = ct.spanWeeks >= 78
+        ? `${Math.round(ct.spanWeeks / 52)} years`
+        : ct.spanWeeks >= 8
+          ? `${Math.round(ct.spanWeeks / 4.345)} months`
+          : `${ct.spanWeeks} week${ct.spanWeeks === 1 ? "" : "s"}`;
+      host.append(takeaway(
+        ct.direction === "down" ? "↘" : ct.direction === "up" ? "↗" : "→",
+        `About ${nf1.format(ct.avgPerWeek)} workout${ct.avgPerWeek === 1 ? "" : "s"} a week over the last ${spanWords}.`,
+      ));
+      return true;
+    }
+
+    // Endurance taste chart (endurance-dominant history): weekly distance.
+    function buildDistanceTaste(host: HTMLElement, merged: any[]): boolean {
+      const end = enduranceTrends(merged);
+      if (end.weekly.length === 0 || end.totalKm <= 0) return false;
+      const wrap = chartWrap(host);
+      wrap.append(buildSparkline(
+        end.weekly.map((w) => ({ bucketStart: w.weekStart, value: w.km })),
+        "week", "km", chartWidth(wrap),
+      ));
+      const distWord = end.distanceTrend === "up" ? "rising"
+        : end.distanceTrend === "down" ? "easing off" : "steady";
+      host.append(takeaway(
+        end.distanceTrend === "down" ? "↘" : "↗",
+        `Weekly distance is ${distWord} — ${nf1.format(end.totalKm)}${THIN}km across ` +
+          `${nf0.format(end.activeWeeks)} active week${end.activeWeeks === 1 ? "" : "s"}.`,
+      ));
+      return true;
+    }
+
+    // --- 5. your data, grouped by record type (collapsible) ------------------------------
+    const DATA_SECTION_LABEL: Record<DataSectionKind, string> = {
+      measurements: "Body measurements", strength: "Workouts", endurance: "Endurance sessions",
+    };
+    function buildDataSections(
+      merged: any[], strengthSessions: any[], enduranceSessions: any[], measurements: any[],
+    ) {
+      previewEl.append(el("h3", "ob-lean-data-h", "Your data, structured"));
+
+      const taste = tasteChoice(merged);
+      const defaultOpen: DataSectionKind =
+        taste === "bodyweight" ? "measurements"
+        : taste === "distance" ? "endurance"
+        : "strength";
+
+      const byKind: Record<DataSectionKind, any[]> = {
+        measurements, strength: strengthSessions, endurance: enduranceSessions,
+      };
+      for (const kind of presentSections(merged)) {
+        buildDataSection(kind, byKind[kind], kind === defaultOpen);
       }
-      fig.append(axis);
-      return fig;
+
+      // View raw openbody.json — reachable, never the default surface; built on first expand.
+      const raw = el("details", "ob-lean-raw ob-raw");
+      const n = merged.length;
+      raw.append(el("summary", undefined,
+        `View raw openbody.json (${nf0.format(n)} record${n === 1 ? "" : "s"})`));
+      const pre = el("pre", "ob-raw-json");
+      raw.append(pre);
+      let built = false;
+      raw.addEventListener("toggle", () => {
+        if (raw.open && !built) { pre.textContent = JSON.stringify(merged, null, 2); built = true; }
+      });
+      previewEl.append(raw);
+    }
+
+    function buildDataSection(kind: DataSectionKind, records: any[], open: boolean) {
+      const det = el("details", "ob-lean-section");
+      if (open) det.open = true;
+      const sum = el("summary", "ob-lean-section-sum");
+      sum.append(el("span", "ob-lean-section-title", DATA_SECTION_LABEL[kind]));
+      sum.append(el("span", "ob-lean-section-n",
+        `${nf0.format(records.length)} record${records.length === 1 ? "" : "s"}`));
+      det.append(sum);
+      const body = el("div", "ob-lean-section-body");
+      if (kind === "measurements") renderMeasurementsTable(records, body);
+      else if (kind === "strength") renderPreview(records, body);
+      else renderEndurancePreview(records, body);
+      det.append(body);
+      previewEl.append(det);
+    }
+
+    // --- 6. ecosystem handoff ------------------------------------------------------------
+    function buildEcosystem() {
+      const section = el("section", "ob-lean-eco ob-card");
+      section.setAttribute("aria-label", "Take your data to the ecosystem");
+      section.append(el("h3", "ob-lean-eco-h", "Now visualize it →"));
+      const p = el("p", "ob-lean-eco-p");
+      p.append(document.createTextNode("OpenBody is an open format other tools can read. Take your "));
+      p.append(el("code", undefined, "openbody.json"));
+      p.append(document.createTextNode(
+        " to any OpenBody-compatible tool to chart, analyze, or store it — and re-import it " +
+        "here anytime. Your data isn't locked to this page or any one app. ",
+      ));
+      const a = el("a", "ob-lean-eco-link", "See the ecosystem →");
+      (a as HTMLAnchorElement).href = "/ecosystem/";
+      p.append(a);
+      section.append(p);
+      previewEl.append(section);
     }
 
     // --- 2. merge receipt strip ----------------------------------------------------------
@@ -1392,463 +1578,6 @@
       }
       section.append(row);
       previewEl.append(section);
-    }
-
-    // --- 4. stat tiles -------------------------------------------------------------------
-    function buildTiles(
-      strengthSessions: any[], enduranceSessions: any[], measurements: any[],
-      merged: any[], trend: BodyweightTrend | null,
-    ) {
-      interface Tile { label: string; value: string; unit?: string; chip?: string; }
-      const tiles: Tile[] = [];
-      const thisYear = new Date().getUTCFullYear();
-
-      const sessionsN = strengthSessions.length + enduranceSessions.length;
-      if (sessionsN > 0) {
-        const yr = merged.filter(
-          (r) => r.recordType === "Session" && new Date(String(r.startTime ?? "")).getUTCFullYear() === thisYear,
-        ).length;
-        tiles.push({ label: "Workouts", value: nf0.format(sessionsN), chip: yr > 0 ? `${nf0.format(yr)} this year` : undefined });
-      }
-
-      let volume = 0;
-      for (const s of collectStrengthSets(merged)) {
-        if (s.weightKg && s.reps) volume += s.weightKg * s.reps;
-      }
-      if (volume > 0) {
-        const big = bigKg(volume);
-        tiles.push({ label: "Total volume lifted", value: big.v, unit: big.unit });
-      }
-
-      if (measurements.length > 0) {
-        let chip: string | undefined;
-        if (trend) {
-          const d = trend.last.trend - trend.first.trend;
-          if (Math.abs(d) >= 0.05) chip = `${d < 0 ? "▼" : "▲"} ${nf1.format(Math.abs(d))} ${trend.unit}`;
-        }
-        tiles.push({ label: "Body measurements", value: nf0.format(measurements.length), chip });
-      }
-
-      if (enduranceSessions.length > 0) {
-        tiles.push({ label: "Endurance sessions", value: nf0.format(enduranceSessions.length) });
-      }
-      if (tiles.length === 0) return;
-
-      const grid = el("section", "ob-tiles");
-      grid.setAttribute("aria-label", "At a glance");
-      for (const t of tiles) {
-        const tile = el("div", "ob-tile");
-        tile.append(el("span", "ob-tile-label", t.label));
-        const v = el("span", "ob-tile-value", t.value);
-        if (t.unit) v.append(el("span", "ob-tile-unit", t.unit));
-        tile.append(v);
-        if (t.chip) tile.append(el("span", "ob-tile-chip", t.chip));
-        grid.append(tile);
-      }
-      previewEl.append(grid);
-    }
-
-    // --- 5. bodyweight EWMA hero ---------------------------------------------------------
-    function buildBodyweightCard(trend: BodyweightTrend) {
-      const card = cardShell("ob-chartcard");
-      cardHead(
-        card, "Bodyweight",
-        "Every reading, with a smoothed trend that strips daily water-weight noise.",
-      );
-      const wrap = chartWrap(card);
-      const phases = bulkCutPhases(trend.points)
-        .filter((p) => p.label !== "maintain")
-        .map((p) => ({ startMs: p.startMs, endMs: p.endMs, label: p.label }));
-      wrap.append(buildLineChart(
-        trend.points.map((p) => ({ t: p.t, raw: p.value, trend: p.trend })),
-        { unit: trend.unit, label: "Bodyweight trend", containerWidth: chartWidth(wrap), phases },
-      ));
-
-      const delta = trend.last.trend - trend.first.trend;
-      const perMonth = seriesSpanDays(trend.points.map((p) => ({ dateMs: p.t })));
-      const rate = perMonth > 30 ? Math.abs(delta) / (perMonth / 30.44) : 0;
-      const dirWord = Math.abs(delta) < 0.05 ? "held steady" : delta < 0 ? "trending down" : "trending up";
-      const take = takeaway(
-        delta < -0.05 ? "↘" : delta > 0.05 ? "↗" : "→",
-        Math.abs(delta) < 0.05
-          ? `Bodyweight has held steady around ${nf1.format(trend.last.trend)}${THIN}${trend.unit}.`
-          : `${cap(dirWord)} — about ${nf1.format(rate || Math.abs(delta))}${THIN}${trend.unit} ` +
-            `${rate ? "a month" : "overall"}.`,
-      );
-      const bands = phases.length
-        ? " Shaded bands mark sustained bulk and cut phases in the smoothed trend."
-        : "";
-      card.append(take);
-      card.append(caveat(
-        `Smoothed with an exponentially-weighted moving average (~${Math.round(1 / trend.alpha)}-reading ` +
-        `memory); same-day readings from two apps are averaged.${bands}`,
-      ));
-    }
-
-    // --- 6. insight-card dispatch --------------------------------------------------------
-    function buildInsightCard(block: PlannedBlock, merged: any[], bwSeries: DailyValue[]) {
-      switch (block.id) {
-        case "pr-timeline": return buildPrCard(merged);
-        case "volume-muscle-group": return buildVolumeCard(merged);
-        case "relative-strength": return buildRelCard(merged, bwSeries);
-        case "calisthenics-progress": return buildCalCard(merged, bwSeries);
-        case "endurance-trends": return buildEndCard(merged);
-        default: return; // bodyweight-trend / bulk-cut handled by the hero; nothing else planned
-      }
-    }
-
-    // PR card — takeaway + PR table (with "forgotten" tag) + optional e1RM line (PR rings +
-    // lift switcher). The plan only lists this block when ≥1 lift has ≥3 sessions.
-    function buildPrCard(merged: any[]) {
-      const lifts = prTimeline(merged);
-      if (lifts.length === 0) return;
-      const card = cardShell("ob-insight");
-
-      const now = Date.now();
-      const yearAgo = now - 365 * DAY_MS;
-      let prCount = 0, forgot = 0;
-      for (const l of lifts) {
-        for (const e of l.prEvents) {
-          if (e.dateMs >= yearAgo) { prCount++; if (e.forgotten) forgot++; }
-        }
-      }
-      const take = el("p", "ob-insight-take");
-      const ico = el("span", "ob-insight-ico", "◆");
-      ico.setAttribute("aria-hidden", "true");
-      take.append(ico);
-      if (prCount > 0) {
-        take.append(document.createTextNode(" You set "));
-        take.append(el("b", undefined, `${nf0.format(prCount)} personal record${prCount === 1 ? "" : "s"}`));
-        take.append(document.createTextNode(" in the last year"));
-        if (forgot > 0) {
-          take.append(document.createTextNode(" — including "));
-          take.append(el("b", undefined, `${nf0.format(forgot)} you'd forgotten`));
-        }
-        take.append(document.createTextNode("."));
-      } else {
-        take.append(document.createTextNode(" Your best estimated 1-rep maxes across "));
-        take.append(el("b", undefined, `${nf0.format(lifts.length)} lift${lifts.length === 1 ? "" : "s"}`));
-        take.append(document.createTextNode("."));
-      }
-      card.append(take);
-
-      // PR table (top lifts by best e1RM).
-      const wrap = el("div", "ob-tablewrap");
-      const table = el("table", "ob-dtable");
-      const thead = el("thead");
-      const hr = el("tr");
-      for (const [txt, cls] of [["Lift", ""], ["Best e1RM", "num"], ["From the set", ""], ["When", ""], ["", ""]] as const) {
-        const th = el("th", cls || undefined, txt);
-        th.scope = "col";
-        hr.append(th);
-      }
-      thead.append(hr);
-      const tbody = el("tbody");
-      for (const l of lifts.slice(0, 6)) {
-        const tr = el("tr");
-        tr.append(el("td", undefined, l.label));
-        tr.append(el("td", "num", `${nf0.format(l.bestE1rm)} kg`));
-        tr.append(el("td", undefined, `${nf0.format(l.bestSet.weightKg)} kg × ${l.bestSet.reps}`));
-        tr.append(el("td", undefined, dayFmt(l.bestSet.day)));
-        const prEvt = l.prEvents.find((e) => Math.abs(e.e1rm - l.bestE1rm) < 1e-6);
-        const tagTd = el("td");
-        if (prEvt?.forgotten) {
-          const tag = el("span", "ob-tag ob-tag-forgot", "forgotten");
-          tag.title = "Beat your old best on a set that didn't look like a max attempt";
-          tagTd.append(tag);
-        } else if (l.bestSet.dateMs >= now - 45 * DAY_MS) {
-          tagTd.append(el("span", "ob-tag ob-tag-new", "new"));
-        }
-        tr.append(tagTd);
-        tbody.append(tr);
-      }
-      table.append(thead, tbody);
-      wrap.append(table);
-      card.append(wrap);
-
-      // Optional e1RM line + lift switcher (only lifts with a chartable series).
-      const chartable = lifts.filter((l) => l.series.length >= 10 && seriesSpanDays(l.series) >= 14).slice(0, 4);
-      if (chartable.length > 0) {
-        const sub = cardHead(card, "Estimated 1-rep max");
-        sub.classList.add("ob-head-row");
-        let current = chartable[0];
-        const subP = el("p", "ob-card-sub");
-        const cWrap = chartWrap(card);
-        const takeP = el("p", "ob-takeaway");
-
-        const draw = () => {
-          cWrap.replaceChildren();
-          const first = current.series[0].e1rm;
-          const last = current.series[current.series.length - 1].e1rm;
-          const d = last - first;
-          cWrap.append(buildLineChart(
-            current.series.map((p) => ({ t: p.dateMs, raw: p.e1rm, trend: p.e1rm })),
-            {
-              unit: "kg", label: `${current.label} estimated 1-rep max`, containerWidth: chartWidth(cWrap),
-              prs: current.prEvents.map((e) => ({ t: e.dateMs, value: e.e1rm })),
-            },
-          ));
-          subP.textContent = `${current.label}, estimated from every logged set. Rings mark a new all-time best.`;
-          takeP.replaceChildren();
-          const tIco = el("span", "ob-take-ico", d < 0 ? "↘" : "↗");
-          tIco.setAttribute("aria-hidden", "true");
-          takeP.append(tIco, el("b", undefined,
-            `${d < 0 ? "Down" : "Up"} ~${nf0.format(Math.abs(d))}${THIN}kg over ${
-              Math.round(seriesSpanDays(current.series) / 30.44)} months.`));
-        };
-
-        if (chartable.length > 1) {
-          const sw = el("div", "ob-lift-switch");
-          sw.setAttribute("role", "tablist");
-          sw.setAttribute("aria-label", "Choose lift");
-          for (const l of chartable) {
-            const b = el("button", undefined, l.label);
-            b.type = "button";
-            b.setAttribute("role", "tab");
-            b.setAttribute("aria-selected", String(l === current));
-            b.addEventListener("click", () => {
-              current = l;
-              for (const btn of sw.querySelectorAll("button")) {
-                btn.setAttribute("aria-selected", String(btn === b));
-              }
-              draw();
-            });
-            sw.append(b);
-          }
-          sub.append(sw);
-        }
-        card.append(subP);
-        // chart wrap already appended by chartWrap(card); move sub description before it.
-        card.insertBefore(subP, cWrap);
-        card.append(takeP);
-        draw();
-      }
-
-      card.append(caveat(
-        "e1RM is estimated from your logged reps & weight (Epley), not a tested one-rep max. " +
-        "A \"forgotten\" PR beat a prior best on a set that didn't look like a max attempt.",
-      ));
-    }
-
-    // Volume small-multiples per muscle group over the last 12 weeks, with a plateau flag.
-    function buildVolumeCard(merged: any[]) {
-      const vol = volumeByMuscleGroup(merged, 12);
-      if (vol.groups.length === 0) return;
-      const card = cardShell();
-      cardHead(
-        card, "Weekly volume by muscle group",
-        "Working sets per week over the last 12 weeks. A flat run is flagged — sometimes that's maintenance.",
-      );
-      const rows = el("div", "ob-volrows");
-      for (const g of vol.groups.slice(0, 6)) {
-        const row = el("div", "ob-volrow");
-        row.append(el("div", "ob-vol-label", cap(g.group)));
-
-        const sparkHost = el("div", "ob-vol-spark");
-        const width = 220;
-        sparkHost.append(buildSparkline(
-          g.weekly.map((w) => ({ bucketStart: w.weekStart, value: w.sets })),
-          "week", "sets", width,
-        ));
-        row.append(sparkHost);
-
-        const last = g.weekly[g.weekly.length - 1]?.sets ?? 0;
-        const firstTrained = g.weekly.find((w) => w.sets > 0)?.sets ?? 0;
-        const meta = el("div", "ob-vol-meta");
-        meta.append(document.createTextNode(`${nf0.format(last)} sets/wk`));
-        meta.append(document.createElement("br"));
-        if (g.plateau) {
-          meta.append(el("span", "ob-vol-flag", "— plateau"));
-        } else {
-          const d = last - firstTrained;
-          meta.append(el("span", "ob-vol-flag", `${d > 0 ? "▲ +" : d < 0 ? "▼ " : "→ "}${nf0.format(Math.abs(d))} / 12wk`));
-        }
-        row.append(meta);
-        rows.append(row);
-      }
-      card.append(rows);
-      card.append(caveat(
-        "Sets counted from exercises mapped to each group (a coarse, group-level heuristic); a " +
-        "\"plateau\" flag means weekly sets held within ±10% for 6+ weeks.",
-      ));
-    }
-
-    // Relative strength (lift ÷ bodyweight) — the "stronger while lighter" story.
-    function buildRelCard(merged: any[], bwSeries: DailyValue[]) {
-      const rel = relativeStrength(merged, bwSeries);
-      if (rel.length === 0) return;
-      const card = cardShell();
-      cardHead(card, "Relative strength", "Each loaded lift's estimated 1-rep max as a multiple of bodyweight.");
-
-      const swl = rel.find((r) => r.strongerWhileLighter);
-      if (swl) {
-        card.append(takeaway("↗",
-          `You're getting stronger while getting lighter — ${swl.label} rose while your bodyweight fell.`));
-      } else {
-        const top = [...rel].sort((a, b) => b.last.ratio - a.last.ratio)[0];
-        card.append(takeaway("→",
-          `${top.label} sits at ${nf1.format(top.last.ratio)}× bodyweight, your strongest lift relative to weight.`));
-      }
-
-      const wrap = el("div", "ob-tablewrap");
-      const table = el("table", "ob-dtable");
-      const thead = el("thead");
-      const hr = el("tr");
-      for (const [txt, cls] of [["Lift", ""], ["Then", "num"], ["Now", "num"], ["Bodyweight", ""]] as const) {
-        const th = el("th", cls || undefined, txt);
-        th.scope = "col";
-        hr.append(th);
-      }
-      thead.append(hr);
-      const tbody = el("tbody");
-      for (const r of [...rel].sort((a, b) => b.last.ratio - a.last.ratio).slice(0, 6)) {
-        const tr = el("tr");
-        tr.append(el("td", undefined, r.label));
-        tr.append(el("td", "num", `${nf1.format(r.first.ratio)}×`));
-        tr.append(el("td", "num", `${nf1.format(r.last.ratio)}×`));
-        const bwWord = r.bodyweightDirection === "down" ? "lighter" : r.bodyweightDirection === "up" ? "heavier" : "steady";
-        tr.append(el("td", undefined, bwWord));
-        tbody.append(tr);
-      }
-      table.append(thead, tbody);
-      wrap.append(table);
-      card.append(wrap);
-
-      const sparse = rel.some((r) => r.sparse);
-      if (sparse) {
-        const chip = el("p", "ob-conf");
-        chip.append(el("span", "ob-conf-chip", "indicative"));
-        chip.append(document.createTextNode(" — some lifts had no bodyweight reading nearby, so the ratio is approximate."));
-        card.append(chip);
-      }
-      card.append(caveat(
-        "Each lift's e1RM is matched to the nearest bodyweight reading (exact day where possible, " +
-        "else the closest within two weeks).",
-      ));
-    }
-
-    // Calisthenics progress — max-reps trend + any weighted PRs (lead card for that profile).
-    function buildCalCard(merged: any[], bwSeries: DailyValue[]) {
-      const cal = calisthenicsProgress(merged, bwSeries).filter((c) => c.sessionCount >= 3);
-      if (cal.length === 0) return;
-      const card = cardShell();
-      cardHead(card, "Calisthenics progress", "Best unbroken set per movement over your logged history.");
-
-      const best = [...cal].sort((a, b) => b.bestReps - a.bestReps)[0];
-      card.append(takeaway("◆",
-        `Up to ${nf0.format(best.bestReps)} unbroken ${best.label.toLowerCase()} — your best single set.`));
-
-      const wrap = el("div", "ob-tablewrap");
-      const table = el("table", "ob-dtable");
-      const thead = el("thead");
-      const hr = el("tr");
-      for (const [txt, cls] of [["Movement", ""], ["Best reps", "num"], ["Progression", ""], ["Sessions", "num"]] as const) {
-        const th = el("th", cls || undefined, txt);
-        th.scope = "col";
-        hr.append(th);
-      }
-      thead.append(hr);
-      const tbody = el("tbody");
-      for (const c of cal.slice(0, 6)) {
-        const tr = el("tr");
-        tr.append(el("td", undefined, c.label));
-        tr.append(el("td", "num", nf0.format(c.bestReps)));
-        const sparkTd = el("td");
-        if (c.repMaxSeries.length >= 3) {
-          sparkTd.append(buildSparkline(
-            c.repMaxSeries.map((p) => ({ bucketStart: p.day, value: p.bestReps })),
-            "week", "sets", 140,
-          ));
-        } else {
-          sparkTd.textContent = "—";
-        }
-        tr.append(sparkTd);
-        tr.append(el("td", "num", nf0.format(c.sessionCount)));
-        tbody.append(tr);
-      }
-      table.append(thead, tbody);
-      wrap.append(table);
-      card.append(wrap);
-      card.append(caveat(
-        "Bodyweight movements recognised by name (weighted and assisted variants included). " +
-        "Progression sparklines show best reps per session over time.",
-      ));
-    }
-
-    // Endurance — weekly distance + a per-discipline pace/speed trend (lead for that profile).
-    function buildEndCard(merged: any[]) {
-      const end = enduranceTrends(merged);
-      if (end.weekly.length === 0) return;
-      const card = cardShell("ob-chartcard");
-      cardHead(card, "Endurance", "Weekly distance and how your pace is trending by discipline.");
-
-      const topDisc = [...end.disciplines].sort((a, b) => b.points.length - a.points.length)[0];
-      const distWord = end.distanceTrend === "up" ? "rising" : end.distanceTrend === "down" ? "easing off" : "steady";
-      let takeText = `Weekly distance is ${distWord} — ${nf1.format(end.totalKm)}${THIN}km logged across ${
-        nf0.format(end.activeWeeks)} active weeks.`;
-      if (topDisc && topDisc.trend !== "flat") {
-        const metric = topDisc.metric === "pace" ? "pace" : "speed";
-        takeText = `Your ${topDisc.discipline} ${metric} is ${topDisc.trend}, and weekly distance is ${distWord}.`;
-      }
-      card.append(takeaway(end.distanceTrend === "down" ? "↘" : "↗", takeText));
-
-      const wrap = chartWrap(card);
-      wrap.append(buildSparkline(
-        end.weekly.map((w) => ({ bucketStart: w.weekStart, value: w.km })),
-        "week", "km", chartWidth(wrap),
-      ));
-
-      if (end.disciplines.length > 0) {
-        const list = el("ul", "ob-disc-list");
-        for (const d of [...end.disciplines].sort((a, b) => b.points.length - a.points.length).slice(0, 4)) {
-          if (d.points.length < 2) continue;
-          const li = el("li");
-          li.append(el("b", undefined, cap(d.discipline)));
-          const word = d.trend === "flat" ? "holding steady"
-            : d.metric === "pace" ? (d.trend === "improving" ? "getting faster" : "slowing")
-            : (d.trend === "improving" ? "getting faster" : "slowing");
-          li.append(document.createTextNode(` — ${word} over ${nf0.format(d.points.length)} sessions`));
-          list.append(li);
-        }
-        if (list.childElementCount > 0) card.append(list);
-      }
-      card.append(caveat(
-        "Pace (sec/km) for run-style disciplines, speed (km/h) for cycling-style; trend compares " +
-        "your first third of sessions to your last third.",
-      ));
-    }
-
-    // --- 7. details & raw records (collapsed) --------------------------------------------
-    function buildDetails(
-      merged: any[], strengthSessions: any[], enduranceSessions: any[], measurements: any[],
-    ) {
-      const details = el("details", "ob-details");
-      details.append(el("summary", undefined, "Details & raw records"));
-      const body = el("div", "ob-details-body");
-
-      const subDiv = () => { const d = el("div"); body.append(d); return d; };
-
-      if (measurements.length > 0) {
-        body.append(el("h4", "ob-details-h", "Body measurements"));
-        renderMeasurementsSummary(summarizeMeasurements(measurements as any), subDiv());
-        renderMeasurementsTable(measurements, subDiv());
-      }
-      if (strengthSessions.length > 0) {
-        body.append(el("h4", "ob-details-h", "Strength training"));
-        renderSummary(summarizeUnified(strengthSessions as any, "strength"), "strength", subDiv());
-        renderResolution(strengthSessions as any, subDiv());
-        renderPreview(strengthSessions as any, subDiv());
-        if (lastStrong) renderStrongInfo(lastStrong, subDiv());
-      }
-      if (enduranceSessions.length > 0) {
-        body.append(el("h4", "ob-details-h", "Endurance & activities"));
-        renderSummary(summarizeUnified(enduranceSessions as any, "endurance"), "endurance", subDiv());
-        renderEndurancePreview(enduranceSessions as any, subDiv());
-      }
-      appendRawRecords(body, merged);
-
-      details.append(body);
-      previewEl.append(details);
     }
 
     // --- 8. three-tier import notes ------------------------------------------------------
@@ -1979,30 +1708,6 @@
       previewEl.append(section);
     }
 
-    // --- 9. export bar -------------------------------------------------------------------
-    function buildExportBar(merged: any[], hasStrength: boolean) {
-      const section = el("section", "ob-export");
-      section.setAttribute("aria-label", "Export your unified history");
-      const copy = el("div", "ob-export-copy");
-      copy.append(el("h3", "ob-export-h", "Take it with you"));
-      copy.append(el("p", undefined,
-        "One file, every source, yours to keep. Re-import it here anytime to pick up where you " +
-        "left off — no account, nothing locked in."));
-      copy.append(el("p", "ob-export-advocacy",
-        "Most fitness apps keep your history siloed. OpenBody is a neutral, open format so it doesn't have to be."));
-      section.append(copy);
-
-      const actions = el("div", "ob-export-actions");
-      // Relocate the real download buttons (their click handlers live on the nodes, so moving
-      // them preserves behaviour). downloadStrongBtn only when there's strength data.
-      actions.append(downloadBtn);
-      if (hasStrength) actions.append(downloadStrongBtn);
-      const note = el("span", "ob-export-note",
-        `🔒 Built in your browser · ${nf0.format(merged.length)} record${merged.length === 1 ? "" : "s"}`);
-      actions.append(note);
-      section.append(actions);
-      previewEl.append(section);
-    }
 
     fileInput?.addEventListener("change", () => {
       const files = fileInput.files ? Array.from(fileInput.files) : [];
