@@ -622,7 +622,7 @@
       // scannable name · date · count row, so the section is a tidy list the reader expands
       // on demand instead of a wall of every set.
       const cards: HTMLElement[] = [];
-      sessions.forEach((session, idx) => {
+      sessions.forEach((session) => {
         const card = document.createElement("details");
         card.className = "ob-session-card";
 
@@ -682,7 +682,7 @@
       // Same collapsible-per-session treatment as strength, closed by default: each is a
       // name · date row carrying its summary line, expanded on demand.
       const cards: HTMLElement[] = [];
-      summary.sessions.slice(0, ENDURANCE_PREVIEW_CAP).forEach((session, idx) => {
+      summary.sessions.slice(0, ENDURANCE_PREVIEW_CAP).forEach((session) => {
         const card = document.createElement("details");
         card.className = "ob-session-card";
         const sum = document.createElement("summary");
@@ -1164,18 +1164,10 @@
       const measurements = merged ? merged.filter((r) => r.recordType === "Measurement") : [];
       if (strengthSessions.length > 0) lastStrong = mapOpenBodyToStrong(strengthSessions as any);
 
-      // 1. EXPORT — the hero, top of the result, unmissable.
-      if (merged && merged.length > 0) {
-        buildExportHero(merged, strengthSessions.length > 0);
-        downloadBtn.hidden = false;
-        downloadStrongBtn.hidden = strengthSessions.length === 0;
-      }
-
-      // 2. SOURCE TOGGLES + MERGE RECEIPT — kept near the top; toggling never loses data.
-      buildChips();
-      if (merged && merged.length > 0 && stats) buildMergeStrip(stats);
-
+      // Empty state (all sources toggled off): show the chips so a source can be re-enabled,
+      // then a short message. No hero/tiles/export without records.
       if (!merged || merged.length === 0) {
+        buildChips();
         previewEl.append(el(
           "p", "ob-cockpit-empty",
           enabled.length === 0
@@ -1185,16 +1177,33 @@
         return;
       }
 
-      // 3. IMPORT NOTES (three-tier: clean / info / warning) — trust, near the export.
-      buildNotes(enabled, strengthSessions, measurements);
+      const sourcesCount = new Set(enabled.map((l) => srcKey(l.source))).size;
 
-      // 4. ONE LIGHT "TASTE" — the aha sentence, the nothing-lost proof, ONE small chart.
-      buildTaste(merged, trend, strengthSessions, enduranceSessions, measurements, stats);
+      // 1. COVERAGE HERO — headline stat sentence + per-source coverage timeline.
+      buildHero(merged, trend, sourcesCount);
+
+      // 2. STAT TILES — at-a-glance counts of what came in.
+      buildTiles(strengthSessions, enduranceSessions, measurements, merged, trend);
+
+      // 3. SOURCE TOGGLES + MERGE RECEIPT — toggling never loses data.
+      buildChips();
+      if (stats) buildMergeStrip(stats);
+
+      // 4. ONE LIGHT "TASTE" — a single profile-chosen chart.
+      buildTaste(merged, trend, strengthSessions, enduranceSessions);
 
       // 5. YOUR DATA — collapsible sections per record type + raw openbody.json.
       buildDataSections(merged, strengthSessions, enduranceSessions, measurements);
 
-      // 6. ECOSYSTEM HANDOFF — take the file to any OpenBody-compatible tool to visualize.
+      // 6. IMPORT NOTES (three-tier: clean / info / warning) — trust / caveats.
+      buildNotes(enabled, strengthSessions, measurements);
+
+      // 7. EXPORT — "take it with you", the payoff near the end (concept arc).
+      buildExportHero(merged, strengthSessions.length > 0);
+      downloadBtn.hidden = false;
+      downloadStrongBtn.hidden = strengthSessions.length === 0;
+
+      // 8. ECOSYSTEM HANDOFF — take the file to any OpenBody-compatible tool to visualize.
       buildEcosystem();
     }
 
@@ -1217,7 +1226,165 @@
       return `${nf0.format(bytes)} bytes`;
     }
 
-    // --- 1. export hero (the moment) -----------------------------------------------------
+    // --- 1. coverage hero -----------------------------------------------------------------
+    // The opening moment: the headline stat sentence (what you just unified) + a per-source
+    // coverage timeline. Revived from the cockpit design; the analytics charts stay retired.
+    function buildHero(merged: any[], trend: BodyweightTrend | null, sourcesCount: number) {
+      const hero = el("section", "ob-hero");
+      hero.setAttribute("aria-label", "Your unified training history");
+      hero.append(el("p", "ob-hero-eyebrow", "Your history, unified"));
+
+      const sessions = merged.filter((r) => r.recordType === "Session").length;
+      const sets = collectStrengthSets(merged).length;
+      const meas = merged.filter((r) => r.recordType === "Measurement").length;
+      const span = timeSpan(merged);
+      const hl = (t: string) => el("b", "ob-hl", t);
+
+      const h = el("h2", "ob-hero-headline");
+      if (span) {
+        h.append(hl(spanLabel(span.min, span.max)));
+        h.append(document.createTextNode(sessions > 0 ? " of training" : " of body-composition history"));
+      } else {
+        h.append(document.createTextNode(sessions > 0 ? "Your training" : "Your body history"));
+      }
+      h.append(document.createTextNode(", from "));
+      h.append(hl(`${sourcesCount} app${sourcesCount === 1 ? "" : "s"}`));
+      h.append(document.createTextNode(", in one place"));
+
+      const tail: (Node | string)[][] = [];
+      if (sessions > 0) tail.push([hl(nf0.format(sessions)), ` workout${sessions === 1 ? "" : "s"}`]);
+      if (sets > 0) tail.push([hl(nf0.format(sets)), ` set${sets === 1 ? "" : "s"}`]);
+      if (sessions === 0 && meas > 0) {
+        tail.push([hl(nf0.format(meas)), ` measurement${meas === 1 ? "" : "s"}`]);
+      }
+      if (trend) {
+        tail.push([
+          "bodyweight from ", hl(nf1.format(trend.first.trend)),
+          " to ", hl(`${nf1.format(trend.last.trend)}${THIN}${trend.unit}`),
+        ]);
+      }
+      if (tail.length > 0) {
+        h.append(document.createTextNode(" — "));
+        tail.forEach((part, i) => {
+          if (i > 0) h.append(document.createTextNode(i === tail.length - 1 ? ", and " : ", "));
+          h.append(...part);
+        });
+      }
+      h.append(document.createTextNode("."));
+      hero.append(h);
+
+      const subBits: string[] = [];
+      if (span) subBits.push(`${monthYear(span.min)} – ${monthYear(span.max)}`);
+      subBits.push(`${sourcesCount} source${sourcesCount === 1 ? "" : "s"} merged`);
+      subBits.push("nothing left your browser");
+      hero.append(el("p", "ob-hero-sub", subBits.join(" · ")));
+
+      const cov = buildCoverage();
+      if (cov) hero.append(cov);
+      previewEl.append(hero);
+    }
+
+    /** One lane per source (enabled + disabled), coloured by identity, on a shared time axis. */
+    function buildCoverage(): HTMLElement | null {
+      const laneData = layers
+        .map((l) => ({ layer: l, span: timeSpan(l.records) }))
+        .filter((x): x is { layer: Layer; span: { min: number; max: number } } => x.span !== null);
+      if (laneData.length === 0) return null;
+      let T0 = Infinity, T1 = -Infinity;
+      for (const { span } of laneData) { T0 = Math.min(T0, span.min); T1 = Math.max(T1, span.max); }
+      const range = Math.max(1, T1 - T0);
+
+      const fig = el("figure", "ob-cov");
+      fig.setAttribute(
+        "aria-label",
+        "Date coverage by source: " +
+          laneData.map((x) => `${x.layer.label}, ${monthYear(x.span.min)} to ${monthYear(x.span.max)}`)
+            .join("; ") + ".",
+      );
+      const lanes = el("div", "ob-cov-lanes");
+      for (const { layer, span } of laneData) {
+        const lane = el("div", "ob-cov-lane" + (layer.enabled ? "" : " is-off"));
+        const seg = el("span", "ob-cov-seg");
+        seg.style.left = `${((span.min - T0) / range) * 100}%`;
+        seg.style.width = `${Math.max(1.5, ((span.max - span.min) / range) * 100)}%`;
+        seg.style.background = srcVar(layer.source);
+        seg.title = `${layer.label}: ${monthYear(span.min)} – ${monthYear(span.max)}`;
+        lane.append(seg);
+        lanes.append(lane);
+      }
+      fig.append(lanes);
+
+      const axis = el("figcaption", "ob-cov-axis");
+      const startY = new Date(T0).getUTCFullYear();
+      const endY = new Date(T1).getUTCFullYear();
+      const step = Math.max(1, Math.ceil((endY - startY + 1) / 6));
+      for (let y = startY; y <= endY; y += step) {
+        const pos = ((Date.UTC(y, 0, 1) - T0) / range) * 100;
+        const tick = el("span", "ob-cov-tick", String(y));
+        tick.style.left = `${Math.min(98, Math.max(0, pos))}%`;
+        axis.append(tick);
+      }
+      fig.append(axis);
+      return fig;
+    }
+
+    // --- 2. stat tiles (at a glance) -----------------------------------------------------
+    // Proof-of-what-came-in counters. Deliberately NOT analytics — no trends to chase, just
+    // the shape of what you imported. Only tiles with data are shown.
+    function buildTiles(
+      strengthSessions: any[], enduranceSessions: any[], measurements: any[],
+      merged: any[], trend: BodyweightTrend | null,
+    ) {
+      interface Tile { label: string; value: string; unit?: string; chip?: string; }
+      const tiles: Tile[] = [];
+      const thisYear = new Date().getUTCFullYear();
+
+      const sessionsN = strengthSessions.length + enduranceSessions.length;
+      if (sessionsN > 0) {
+        const yr = merged.filter(
+          (r) => r.recordType === "Session" && new Date(String(r.startTime ?? "")).getUTCFullYear() === thisYear,
+        ).length;
+        tiles.push({ label: "Workouts", value: nf0.format(sessionsN), chip: yr > 0 ? `${nf0.format(yr)} this year` : undefined });
+      }
+
+      let volume = 0;
+      for (const s of collectStrengthSets(merged)) {
+        if (s.weightKg && s.reps) volume += s.weightKg * s.reps;
+      }
+      if (volume > 0) {
+        const big = bigKg(volume);
+        tiles.push({ label: "Total volume lifted", value: big.v, unit: big.unit });
+      }
+
+      if (measurements.length > 0) {
+        let chip: string | undefined;
+        if (trend) {
+          const d = trend.last.trend - trend.first.trend;
+          if (Math.abs(d) >= 0.05) chip = `${d < 0 ? "▼" : "▲"} ${nf1.format(Math.abs(d))} ${trend.unit}`;
+        }
+        tiles.push({ label: "Body measurements", value: nf0.format(measurements.length), chip });
+      }
+
+      if (enduranceSessions.length > 0) {
+        tiles.push({ label: "Endurance sessions", value: nf0.format(enduranceSessions.length) });
+      }
+      if (tiles.length === 0) return;
+
+      const grid = el("section", "ob-tiles");
+      grid.setAttribute("aria-label", "At a glance");
+      for (const t of tiles) {
+        const tile = el("div", "ob-tile");
+        tile.append(el("span", "ob-tile-label", t.label));
+        const v = el("span", "ob-tile-value", t.value);
+        if (t.unit) v.append(el("span", "ob-tile-unit", t.unit));
+        tile.append(v);
+        if (t.chip) tile.append(el("span", "ob-tile-chip", t.chip));
+        grid.append(tile);
+      }
+      previewEl.append(grid);
+    }
+
+    // --- export hero (the moment) --------------------------------------------------------
     // Relocates the real download buttons (their click handlers live on the nodes, so moving
     // them preserves behaviour) into a prominent block at the very top of the result.
     function buildExportHero(merged: any[], hasStrength: boolean) {
@@ -1263,23 +1430,15 @@
       previewEl.append(section);
     }
 
-    // --- highlighted number helper (shared by the aha sentence) --------------------------
-    const hlNum = (t: string) => el("b", "ob-hl", t);
-
-    // --- 4. the "taste": aha sentence + nothing-lost proof + ONE small chart -------------
+    // --- 4. the "taste": ONE small profile-chosen chart ----------------------------------
     function buildTaste(
       merged: any[], trend: BodyweightTrend | null,
-      strengthSessions: any[], enduranceSessions: any[], _measurements: any[],
-      stats: MergeStats | null,
+      strengthSessions: any[], enduranceSessions: any[],
     ) {
       const section = el("section", "ob-lean-taste ob-card");
 
-      // The generated "aha" sentence.
-      section.append(buildAhaSentence(merged, trend));
-      // The coverage / "nothing lost" proof line.
-      section.append(buildNothingLost(merged, stats));
-
-      // Exactly ONE profile-chosen trend chart — a taste, not a dashboard.
+      // Exactly ONE profile-chosen trend chart — a taste, not a dashboard. The headline stat
+      // sentence now lives in the hero above; merge integrity is covered by the strip + notes.
       const taste = tasteChoice(merged);
       let rendered = false;
       if (taste === "bodyweight" && trend && trend.points.length >= 2) {
@@ -1292,66 +1451,11 @@
       } else if (taste === "consistency") {
         rendered = buildConsistencyTaste(section, merged);
       }
+      if (!rendered) return; // no naked, empty taste card
 
-      if (rendered) {
-        section.append(el("p", "ob-lean-taste-note",
-          "A quick look — full analysis is what other OpenBody-compatible tools are for."));
-      }
+      section.append(el("p", "ob-lean-taste-note",
+        "A quick look — full analysis is what other OpenBody-compatible tools are for."));
       previewEl.append(section);
-    }
-
-    function buildAhaSentence(merged: any[], trend: BodyweightTrend | null): HTMLElement {
-      const sessions = merged.filter((r) => r.recordType === "Session").length;
-      const sets = collectStrengthSets(merged).length;
-      const meas = merged.filter((r) => r.recordType === "Measurement").length;
-      const sourcesCount = new Set(layers.filter((l) => l.enabled).map((l) => srcKey(l.source))).size;
-      const span = timeSpan(merged);
-
-      const h = el("p", "ob-lean-aha");
-      if (span) {
-        h.append(hlNum(spanLabel(span.min, span.max)));
-        h.append(document.createTextNode(sessions > 0 ? " of training" : " of body history"));
-      } else {
-        h.append(document.createTextNode(sessions > 0 ? "Your training" : "Your body history"));
-      }
-      h.append(document.createTextNode(", from "));
-      h.append(hlNum(`${sourcesCount} app${sourcesCount === 1 ? "" : "s"}`));
-      h.append(document.createTextNode(", now in one portable file"));
-
-      const tail: (Node | string)[][] = [];
-      if (sessions > 0) tail.push([hlNum(nf0.format(sessions)), ` workout${sessions === 1 ? "" : "s"}`]);
-      if (sets > 0) tail.push([hlNum(nf0.format(sets)), ` set${sets === 1 ? "" : "s"}`]);
-      if (sessions === 0 && meas > 0) tail.push([hlNum(nf0.format(meas)), ` measurement${meas === 1 ? "" : "s"}`]);
-      if (trend) {
-        tail.push([
-          "bodyweight from ", hlNum(nf1.format(trend.first.trend)),
-          " to ", hlNum(`${nf1.format(trend.last.trend)}${THIN}${trend.unit}`),
-        ]);
-      }
-      if (tail.length > 0) {
-        h.append(document.createTextNode(" — "));
-        tail.forEach((part, i) => {
-          if (i > 0) h.append(document.createTextNode(i === tail.length - 1 ? ", and " : ", "));
-          h.append(...part);
-        });
-      }
-      h.append(document.createTextNode("."));
-      return h;
-    }
-
-    function buildNothingLost(merged: any[], stats: MergeStats | null): HTMLElement {
-      const p = el("p", "ob-lean-nothinglost");
-      const ico = el("span", "ob-take-ico", "✓");
-      ico.setAttribute("aria-hidden", "true");
-      p.append(ico);
-      const bits: string[] = [`${nf0.format(merged.length)} record${merged.length === 1 ? "" : "s"} kept`];
-      if (stats && stats.exactCollapsed > 0) {
-        bits.push(`${nf0.format(stats.exactCollapsed)} exact duplicate${stats.exactCollapsed === 1 ? "" : "s"} merged`);
-      }
-      const span = timeSpan(merged);
-      const cover = span ? `${monthYear(span.min)} – ${monthYear(span.max)}, ` : "";
-      p.append(document.createTextNode(` Nothing lost: ${cover}${bits.join(", ")}, nothing deleted.`));
-      return p;
     }
 
     // Bodyweight EWMA taste chart (body-measurement-dominant history).

@@ -1328,29 +1328,9 @@ import { Aside } from "@astrojs/starlight/components";
     .ob-lean-strong > summary { cursor: pointer; font-weight: 600; color: var(--sl-color-gray-2); width: max-content; }
     .ob-lean-strong-body { margin-top: 0.6rem; }
 
-    /* The one "taste" card: aha sentence + nothing-lost proof + a single small chart. */
+    /* The one "taste" card: a single small profile-chosen chart (headline now lives in the
+       coverage hero above). */
     .ob-lean-taste { display: flex; flex-direction: column; gap: 0.4rem; }
-    .ob-lean-aha {
-      margin: 0;
-      font-size: var(--sl-text-lg);
-      font-weight: 500;
-      line-height: 1.35;
-      letter-spacing: -0.01em;
-      color: var(--sl-color-gray-2);
-      max-width: 46ch;
-      text-wrap: balance;
-    }
-    .ob-lean-aha .ob-hl { color: var(--sl-color-white); font-weight: 600; font-variant-numeric: tabular-nums; }
-    .ob-lean-nothinglost {
-      display: flex;
-      gap: 0.45rem;
-      align-items: baseline;
-      margin: 0.3rem 0 0.4rem;
-      font-size: var(--sl-text-sm);
-      color: var(--sl-color-gray-2);
-    }
-    .ob-lean-nothinglost .ob-take-ico { color: #2e955f; font-weight: 700; flex: none; }
-    :root:not([data-theme="light"]) .ob-lean-nothinglost .ob-take-ico { color: #4fbb84; }
     .ob-lean-taste-note {
       margin: 0.5rem 0 0;
       font-size: var(--sl-text-xs);
