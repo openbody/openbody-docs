@@ -231,10 +231,24 @@ import { Aside } from "@astrojs/starlight/components";
     } from "../../components/convert-sources";
     import {
       bodyweightTrend,
+      dailyBodyMass,
       measurementTable,
       type BodyweightTrend,
       type MeasurementTable,
+      type DailyValue,
     } from "../../components/insights";
+    import {
+      insightPlan,
+      prTimeline,
+      relativeStrength,
+      volumeByMuscleGroup,
+      calisthenicsProgress,
+      enduranceTrends,
+      bulkCutPhases,
+      collectStrengthSets,
+      type InsightPlanResult,
+      type PlannedBlock,
+    } from "../../components/analysis";
 
     const fileInput = document.getElementById("file-input") as HTMLInputElement;
     const subjectInput = document.getElementById("subject-input") as HTMLInputElement;
@@ -274,6 +288,8 @@ import { Aside } from "@astrojs/starlight/components";
       warnings: MapWarning[];
       /** e.g. "3 records failed validation and were skipped" (OpenBody re-import). */
       note?: string;
+      /** Records that failed validation on re-import and were dropped (drives the ⚠ note). */
+      invalidCount?: number;
       /** Original file text — lets a Subject-ID change re-map the layer with the mapper. */
       text?: string;
       fileName: string;
@@ -388,7 +404,17 @@ import { Aside } from "@astrojs/starlight/components";
     // so later phases can chart other metrics; Phase A feeds it the bodyweight EWMA trend.
     function buildLineChart(
       points: { t: number; raw: number; trend: number }[],
-      opts: { unit: string; label: string; containerWidth: number },
+      opts: {
+        unit: string;
+        label: string;
+        containerWidth: number;
+        /** Faint descriptive phase bands (e.g. bulk/cut) drawn behind the series. */
+        phases?: { startMs: number; endMs: number; label: string }[];
+        /** Ringed markers on the trend line (e.g. personal-record days). */
+        prs?: { t: number; value: number }[];
+        /** Faint raw-reading dots (default true); off for series that are already best-per-day. */
+        showRawDots?: boolean;
+      },
     ): SVGSVGElement {
       const NS = "http://www.w3.org/2000/svg";
       const W = Math.max(280, opts.containerWidth);
@@ -397,6 +423,7 @@ import { Aside } from "@astrojs/starlight/components";
       const plotW = W - padL - padR;
       const plotH = H - padT - padB;
       const unit = opts.unit ? ` ${opts.unit}` : "";
+      const showRawDots = opts.showRawDots !== false;
 
       const ts = points.map((p) => p.t);
       const t0 = Math.min(...ts), t1 = Math.max(...ts);
@@ -426,6 +453,29 @@ import { Aside } from "@astrojs/starlight/components";
           `Faint dots are raw daily readings; the bold line is the smoothed trend.`,
       );
 
+      // Faint descriptive phase bands (bulk/cut), drawn first so they sit behind everything.
+      for (const ph of opts.phases ?? []) {
+        const x1 = xOf(Math.max(t0, ph.startMs));
+        const x2 = xOf(Math.min(t1, ph.endMs));
+        if (!(x2 > x1)) continue;
+        const band = document.createElementNS(NS, "rect");
+        band.setAttribute("class", "ob-line-band");
+        band.setAttribute("x", x1.toFixed(2));
+        band.setAttribute("y", String(padT));
+        band.setAttribute("width", (x2 - x1).toFixed(2));
+        band.setAttribute("height", String(plotH));
+        const bt = document.createElementNS(NS, "title");
+        bt.textContent = ph.label;
+        band.append(bt);
+        svg.append(band);
+        const bl = document.createElementNS(NS, "text");
+        bl.setAttribute("class", "ob-line-band-label");
+        bl.setAttribute("x", (x1 + 4).toFixed(2));
+        bl.setAttribute("y", String(padT + 11));
+        bl.textContent = ph.label;
+        svg.append(bl);
+      }
+
       // y guide lines + labels at min / max of the plotted range.
       for (const v of [vMax - pad, vMin + pad]) {
         const y = yOf(v);
@@ -446,7 +496,7 @@ import { Aside } from "@astrojs/starlight/components";
       }
 
       // Faint raw daily readings (the noise the trend strips).
-      for (const p of points) {
+      if (showRawDots) for (const p of points) {
         const dot = document.createElementNS(NS, "circle");
         dot.setAttribute("class", "ob-line-raw");
         dot.setAttribute("cx", xOf(p.t).toFixed(2));
@@ -466,6 +516,19 @@ import { Aside } from "@astrojs/starlight/components";
       path.setAttribute("class", "ob-line-trend");
       path.setAttribute("points", points.map((p) => `${xOf(p.t).toFixed(2)},${yOf(p.trend).toFixed(2)}`).join(" "));
       svg.append(path);
+
+      // Personal-record rings on the trend line.
+      for (const pr of opts.prs ?? []) {
+        const ring = document.createElementNS(NS, "circle");
+        ring.setAttribute("class", "ob-line-pr");
+        ring.setAttribute("cx", xOf(pr.t).toFixed(2));
+        ring.setAttribute("cy", yOf(pr.value).toFixed(2));
+        ring.setAttribute("r", "4.2");
+        const rt = document.createElementNS(NS, "title");
+        rt.textContent = `New best: ${fmt(pr.value)}${unit}`;
+        ring.append(rt);
+        svg.append(ring);
+      }
 
       // Endpoint markers + value labels (start faint, latest emphasized).
       for (const [p, emphasize] of [[first, false], [last, true]] as const) {
@@ -914,99 +977,50 @@ import { Aside } from "@astrojs/starlight/components";
       summaryEl.hidden = false;
     }
 
-    // Body-measurement preview (Phase A). The old surface was a stack of up to 60 near-
-    // identical one-row cards — a low-density wall of scroll for a real 100+-day weight log.
-    // Now: (1) an EWMA bodyweight trend chart (the "aha" — daily water-weight noise stripped),
-    // then (2) ONE compact table, a row per day and a column per metric, in a horizontally
-    // scrollable box so it never breaks page layout. Raw JSON stays reachable behind a toggle.
-    function renderMeasurementsPreview(records: any[], host: HTMLElement) {
-      const previewEl = host;
-      previewEl.replaceChildren();
-
-      // (1) Bodyweight EWMA trend chart, when body_mass exists.
-      const trend: BodyweightTrend | null = bodyweightTrend(records);
-      if (trend && trend.points.length >= 2) {
-        const section = document.createElement("div");
-        section.className = "ob-trend";
-        const caption = document.createElement("p");
-        caption.className = "ob-summary-subhead";
-        caption.textContent = "Bodyweight trend";
-        section.append(caption);
-
-        const wrap = document.createElement("div");
-        wrap.className = "ob-line-wrap";
-        section.append(wrap);
-        previewEl.append(section);
-        const width = Math.max(280, Math.min(wrap.clientWidth || 640, 760));
-        wrap.append(
-          buildLineChart(
-            trend.points.map((p) => ({ t: p.t, raw: p.value, trend: p.trend })),
-            { unit: trend.unit, label: "Bodyweight trend", containerWidth: width },
-          ),
-        );
-
-        const delta = trend.last.trend - trend.first.trend;
-        const dirWord = Math.abs(delta) < 0.05 ? "held steady" : delta < 0 ? "down" : "up";
-        const note = document.createElement("p");
-        note.className = "ob-trend-note";
-        note.textContent =
-          `The bold line is an exponentially-weighted moving average (${Math.round(trend.alpha * 100)}% ` +
-          `smoothing — the "Hacker's Diet" trend): it strips day-to-day water-weight noise ` +
-          `from the faint raw readings. Trend ${dirWord === "held steady" ? "held steady" : `${dirWord} ` +
-          `${Math.abs(delta).toFixed(1)} ${trend.unit}`} from ${trend.first.trend.toFixed(1)} to ` +
-          `${trend.last.trend.toFixed(1)} ${trend.unit} over ${trend.points.length} logged days.`;
-        section.append(note);
-      }
-
-      // (2) One compact table: a row per day, a column per (type, laterality) present.
+    // Just the per-day measurements TABLE (no chart) — the bodyweight chart is the cockpit
+    // hero, so the collapsed details only needs the dense grid. Reuses `measurementTable`.
+    function renderMeasurementsTable(records: any[], host: HTMLElement) {
       const table: MeasurementTable = measurementTable(records);
-      if (table.rows.length > 0) {
-        const scroll = document.createElement("div");
-        scroll.className = "ob-tablewrap";
-        const el = document.createElement("table");
-        el.className = "ob-meas-grid";
-
-        const thead = document.createElement("thead");
-        const headRow = document.createElement("tr");
-        const dateTh = document.createElement("th");
-        dateTh.scope = "col";
-        dateTh.textContent = "Date";
-        headRow.append(dateTh);
-        for (const col of table.columns) {
-          const th = document.createElement("th");
-          th.scope = "col";
-          th.textContent = col.unit ? `${col.label} (${col.unit})` : col.label;
-          if (col.namespaced) {
-            th.title = "No canonical registry type yet — kept as a namespaced token.";
-            const tag = document.createElement("span");
-            tag.className = "ob-meas-tag";
-            tag.textContent = `${col.type.split(":")[0]}:`;
-            th.append(" ", tag);
-          }
-          headRow.append(th);
+      if (table.rows.length === 0) return;
+      const scroll = document.createElement("div");
+      scroll.className = "ob-tablewrap";
+      const el = document.createElement("table");
+      el.className = "ob-meas-grid";
+      const thead = document.createElement("thead");
+      const headRow = document.createElement("tr");
+      const dateTh = document.createElement("th");
+      dateTh.scope = "col";
+      dateTh.textContent = "Date";
+      headRow.append(dateTh);
+      for (const col of table.columns) {
+        const th = document.createElement("th");
+        th.scope = "col";
+        th.textContent = col.unit ? `${col.label} (${col.unit})` : col.label;
+        if (col.namespaced) {
+          th.title = "No canonical registry type yet — kept as a namespaced token.";
         }
-        thead.append(headRow);
-
-        const tbody = document.createElement("tbody");
-        for (const row of table.rows) {
-          const tr = document.createElement("tr");
-          const dateTd = document.createElement("th");
-          dateTd.scope = "row";
-          dateTd.className = "ob-meas-daterow";
-          dateTd.textContent = row.dateLabel;
-          tr.append(dateTd);
-          for (const col of table.columns) {
-            const td = document.createElement("td");
-            td.className = "ob-meas-value";
-            td.textContent = row.cells[col.key] ?? "";
-            tr.append(td);
-          }
-          tbody.append(tr);
-        }
-        el.append(thead, tbody);
-        scroll.append(el);
-        previewEl.append(scroll);
+        headRow.append(th);
       }
+      thead.append(headRow);
+      const tbody = document.createElement("tbody");
+      for (const row of table.rows) {
+        const tr = document.createElement("tr");
+        const dateTd = document.createElement("th");
+        dateTd.scope = "row";
+        dateTd.className = "ob-meas-daterow";
+        dateTd.textContent = row.dateLabel;
+        tr.append(dateTd);
+        for (const col of table.columns) {
+          const td = document.createElement("td");
+          td.className = "ob-meas-value";
+          td.textContent = row.cells[col.key] ?? "";
+          tr.append(td);
+        }
+        tbody.append(tr);
+      }
+      el.append(thead, tbody);
+      scroll.append(el);
+      host.append(scroll);
     }
 
     const SUPPORTED_HINT =
@@ -1105,6 +1119,7 @@ import { Aside } from "@astrojs/starlight/components";
               `${invalid === 1 ? "was" : "were"} skipped (not counted, not exported).` +
               `${reasons[0] ? ` First error: ${reasons[0]}` : ""}`
             : undefined,
+          invalidCount: invalid,
           fileName: file.name,
         });
         return {
@@ -1188,207 +1203,999 @@ import { Aside } from "@astrojs/starlight/components";
 
     // --- render: the whole surface is a MERGE of the enabled layers ---------------------
 
-    function renderAll() {
-      renderLayerList();
-      renderSubjectNote();
-      renderDashboard();
+    // =====================================================================================
+    // PHASE C — the "convert cockpit". One profile-driven dashboard over the merged history,
+    // laid out top-to-bottom per the approved mockup's information architecture:
+    //   coverage hero (generated "aha" sentence + per-source timeline) → merge receipt strip →
+    //   source chips → stat tiles → bodyweight EWMA hero (with bulk/cut bands) →
+    //   profile-driven insight cards (order + inclusion straight from analysis.insightPlan) →
+    //   collapsed details/raw (every Phase A/B surface, preserved) → three-tier import notes →
+    //   export bar. The whole surface is a MERGE of the ENABLED layers; toggling a source chip
+    //   rebuilds the view. All rendering appends into `previewEl`, which is the single canvas.
+    // =====================================================================================
+
+    // Source → validated categorical palette key (the --ob-src-* CSS vars). Both Hevy exports
+    // share one identity; an openbody.json re-import gets the neutral "json" colour.
+    const SRC_PALETTE: Record<string, string> = {
+      hevy: "hevy",
+      "hevy-measurements": "hevy",
+      strong: "strong",
+      "apple-health": "apple",
+      strava: "strava",
+      openbody: "json",
+    };
+    const srcKey = (source: string) => SRC_PALETTE[source] ?? "json";
+    const srcVar = (source: string) => `var(--ob-src-${srcKey(source)})`;
+
+    const nf0 = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+    const nf1 = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
+    const THIN = " "; // thin space between a number and its unit
+    const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+    function el<K extends keyof HTMLElementTagNameMap>(
+      tag: K, cls?: string, text?: string,
+    ): HTMLElementTagNameMap[K] {
+      const node = document.createElement(tag);
+      if (cls) node.className = cls;
+      if (text !== undefined) node.textContent = text;
+      return node;
     }
 
-    function renderLayerList() {
+    /** earliest / latest startTime (ms) across a record set (Measurements + Sessions). */
+    function timeSpan(records: any[]): { min: number; max: number } | null {
+      let min = Infinity, max = -Infinity;
+      for (const r of records) {
+        const t = Date.parse(String(r.startTime ?? ""));
+        if (!Number.isFinite(t)) continue;
+        if (t < min) min = t;
+        if (t > max) max = t;
+      }
+      return min === Infinity ? null : { min, max };
+    }
+
+    const DAY_MS = 86_400_000;
+    function spanLabel(min: number, max: number): string {
+      const days = Math.max(0, (max - min) / DAY_MS);
+      const years = days / 365.25;
+      if (years >= 1.5) return `${Math.round(years)} years`;
+      const months = days / 30.44;
+      if (months >= 1.5) return `${Math.round(months)} months`;
+      const d = Math.max(1, Math.round(days));
+      return `${d} day${d === 1 ? "" : "s"}`;
+    }
+    const monthYear = (ms: number) =>
+      new Date(ms).toLocaleDateString(undefined, { month: "short", year: "numeric", timeZone: "UTC" });
+    const dayFmt = (day: string) =>
+      new Date(`${day}T00:00:00Z`).toLocaleDateString(undefined, { dateStyle: "medium", timeZone: "UTC" });
+    const seriesSpanDays = (s: { dateMs: number }[]) =>
+      s.length < 2 ? 0 : (s[s.length - 1].dateMs - s[0].dateMs) / DAY_MS;
+
+    const bigKg = (kg: number): { v: string; unit: string } =>
+      kg >= 1e6 ? { v: nf1.format(kg / 1e6), unit: "M kg" }
+      : kg >= 1e3 ? { v: nf1.format(kg / 1e3), unit: "k kg" }
+      : { v: nf0.format(kg), unit: "kg" };
+
+    // --- reusable card furniture (takeaway / caveat / confidence chip) -------------------
+    function cardShell(extra?: string): HTMLElement {
+      const c = el("section", "ob-card" + (extra ? " " + extra : ""));
+      previewEl.append(c);
+      return c;
+    }
+    function takeaway(icon: string, ...nodes: (Node | string)[]): HTMLElement {
+      const p = el("p", "ob-takeaway");
+      const ico = el("span", "ob-take-ico", icon);
+      ico.setAttribute("aria-hidden", "true");
+      const strong = el("b");
+      strong.append(...nodes);
+      p.append(ico, strong);
+      return p;
+    }
+    function caveat(text: string): HTMLElement {
+      const p = el("p", "ob-caveat");
+      const ico = el("span", "ob-caveat-ico", "ⓘ");
+      ico.setAttribute("aria-hidden", "true");
+      p.append(ico, document.createTextNode(" " + text));
+      return p;
+    }
+    function chartWrap(host: HTMLElement): HTMLElement {
+      const w = el("div", "ob-chart");
+      host.append(w);
+      return w;
+    }
+    function chartWidth(wrap: HTMLElement): number {
+      return Math.max(280, Math.min(wrap.clientWidth || 640, 760));
+    }
+    function cardHead(host: HTMLElement, title: string, subText?: string): HTMLElement {
+      const head = el("div", "ob-card-head");
+      head.append(el("h3", "ob-card-h", title));
+      if (subText) head.append(el("p", "ob-card-sub", subText));
+      host.append(head);
+      return head;
+    }
+
+    // --- entry point ---------------------------------------------------------------------
+    function renderAll() {
+      renderCockpit();
+    }
+
+    function renderCockpit() {
+      // Reset the legacy fixed regions (unused by the cockpit) and the single render canvas.
+      for (const region of [summaryEl, resolutionEl, strongInfoEl]) {
+        region.replaceChildren();
+        region.hidden = true;
+      }
+      subjectNoteEl.hidden = true;
+      layersEl.hidden = true;
       layersEl.replaceChildren();
+      previewEl.replaceChildren();
+      downloadBtn.hidden = true;
+      downloadStrongBtn.hidden = true;
+      lastMerged = null;
+      lastStrong = null;
+
       if (layers.length === 0) {
-        layersEl.hidden = true;
+        previewEl.hidden = true;
         return;
       }
-      const head = document.createElement("p");
-      head.className = "ob-layers-head";
-      head.textContent =
-        `Sources (${layers.length}) — toggle any on or off, or remove one; the dashboard and ` +
-        `download update to match.`;
-      layersEl.append(head);
+      previewEl.hidden = false;
 
-      const list = document.createElement("ul");
-      list.className = "ob-layer-list";
-      for (const layer of layers) {
-        const li = document.createElement("li");
-        li.className = "ob-layer";
+      const enabled = layers.filter((l) => l.enabled);
+      const sourcesCount = new Set(enabled.map((l) => srcKey(l.source))).size;
+      let merged: any[] | null = null;
+      let stats: MergeStats | null = null;
+      if (enabled.length > 0) {
+        const res = mergeLayers(
+          enabled.map((l) => ({
+            id: l.id, label: l.label, records: l.records, enabled: true, namespaced: l.namespaced,
+          })),
+        );
+        merged = res.merged as any[];
+        stats = res.stats;
+        lastMerged = merged;
+        lastBaseName = enabled.length === 1
+          ? enabled[0].fileName.replace(/\.(csv|xml|json)$/i, "") || "openbody-export"
+          : "openbody-merged";
+      }
 
-        const toggle = document.createElement("label");
-        toggle.className = "ob-layer-toggle";
-        const cb = document.createElement("input");
-        cb.type = "checkbox";
-        cb.checked = layer.enabled;
-        cb.addEventListener("change", () => {
-          layer.enabled = cb.checked;
-          renderDashboard();
+      const trend = merged ? bodyweightTrend(merged) : null;
+      const bwSeries: DailyValue[] = merged ? dailyBodyMass(merged).series : [];
+      const plan: InsightPlanResult | null = merged ? insightPlan(merged) : null;
+
+      // 1. COVERAGE HERO + 2. MERGE RECEIPT STRIP (only when there's data to describe).
+      if (merged && merged.length > 0) {
+        buildHero(merged, trend, sourcesCount);
+        if (stats) buildMergeStrip(stats);
+      }
+
+      // 3. SOURCE CHIPS — always, so an all-off view can be toggled back on.
+      buildChips();
+
+      if (!merged || merged.length === 0) {
+        previewEl.append(el(
+          "p", "ob-cockpit-empty",
+          enabled.length === 0
+            ? "All sources are toggled off — enable at least one above."
+            : "No records to show from the enabled sources.",
+        ));
+        return;
+      }
+
+      const strengthSessions = merged.filter((r) => r.recordType === "Session" && hasSets(r));
+      const enduranceSessions = merged.filter((r) => r.recordType === "Session" && !hasSets(r));
+      const measurements = merged.filter((r) => r.recordType === "Measurement");
+      if (strengthSessions.length > 0) lastStrong = mapOpenBodyToStrong(strengthSessions as any);
+
+      // 4. STAT TILES (facts only, no composite scores).
+      buildTiles(strengthSessions, enduranceSessions, measurements, merged, trend);
+
+      // 5. BODYWEIGHT EWMA HERO CHART (the signature chart, with bulk/cut phase bands).
+      //    This IS the render of the plan's bodyweight-trend + bulk-cut blocks.
+      if (trend && trend.points.length >= 2) buildBodyweightCard(trend);
+
+      // 6. PROFILE-DRIVEN INSIGHT CARDS — exactly plan.blocks, in plan order. bodyweight-trend
+      //    and bulk-cut are already shown as the hero above, so they're skipped here.
+      for (const block of plan!.blocks) {
+        if (block.id === "bodyweight-trend" || block.id === "bulk-cut") continue;
+        buildInsightCard(block, merged, bwSeries);
+      }
+
+      // 7. DETAILS & RAW RECORDS — collapsed; preserves every Phase A/B surface intact.
+      buildDetails(merged, strengthSessions, enduranceSessions, measurements);
+
+      // 8. THREE-TIER IMPORT NOTES.
+      buildNotes(enabled, strengthSessions, measurements);
+
+      // 9. EXPORT BAR — relocates the real download buttons so their handlers survive.
+      buildExportBar(merged, strengthSessions.length > 0);
+      downloadBtn.hidden = false;
+      downloadStrongBtn.hidden = strengthSessions.length === 0;
+    }
+
+    // --- 1. coverage hero ----------------------------------------------------------------
+    function buildHero(merged: any[], trend: BodyweightTrend | null, sourcesCount: number) {
+      const hero = el("section", "ob-hero");
+      hero.setAttribute("aria-label", "Your unified training history");
+      hero.append(el("p", "ob-hero-eyebrow", "Your history, unified"));
+
+      const sessions = merged.filter((r) => r.recordType === "Session").length;
+      const sets = collectStrengthSets(merged).length;
+      const meas = merged.filter((r) => r.recordType === "Measurement").length;
+      const span = timeSpan(merged);
+      const hl = (t: string) => el("b", "ob-hl", t);
+
+      const h = el("h2", "ob-hero-headline");
+      if (span) {
+        h.append(hl(spanLabel(span.min, span.max)));
+        h.append(document.createTextNode(sessions > 0 ? " of training" : " of body-composition history"));
+      } else {
+        h.append(document.createTextNode(sessions > 0 ? "Your training" : "Your body history"));
+      }
+      h.append(document.createTextNode(", from "));
+      h.append(hl(`${sourcesCount} app${sourcesCount === 1 ? "" : "s"}`));
+      h.append(document.createTextNode(", in one place"));
+
+      const tail: (Node | string)[][] = [];
+      if (sessions > 0) tail.push([hl(nf0.format(sessions)), ` workout${sessions === 1 ? "" : "s"}`]);
+      if (sets > 0) tail.push([hl(nf0.format(sets)), ` set${sets === 1 ? "" : "s"}`]);
+      if (sessions === 0 && meas > 0) {
+        tail.push([hl(nf0.format(meas)), ` measurement${meas === 1 ? "" : "s"}`]);
+      }
+      if (trend) {
+        tail.push([
+          "bodyweight from ", hl(nf1.format(trend.first.trend)),
+          " to ", hl(`${nf1.format(trend.last.trend)}${THIN}${trend.unit}`),
+        ]);
+      }
+      if (tail.length > 0) {
+        h.append(document.createTextNode(" — "));
+        tail.forEach((part, i) => {
+          if (i > 0) h.append(document.createTextNode(i === tail.length - 1 ? ", and " : ", "));
+          h.append(...part);
         });
-        const name = document.createElement("span");
-        name.className = "ob-layer-label";
-        name.textContent = layer.label;
-        const count = document.createElement("span");
-        count.className = "ob-layer-count";
-        count.textContent = `${layer.records.length} rec${layer.records.length === 1 ? "" : "s"}`;
-        toggle.append(cb, name, count);
+      }
+      h.append(document.createTextNode("."));
+      hero.append(h);
 
-        const remove = document.createElement("button");
+      const subBits: string[] = [];
+      if (span) subBits.push(`${monthYear(span.min)} – ${monthYear(span.max)}`);
+      subBits.push(`${sourcesCount} source${sourcesCount === 1 ? "" : "s"} merged`);
+      subBits.push("nothing left your browser");
+      hero.append(el("p", "ob-hero-sub", subBits.join(" · ")));
+
+      const cov = buildCoverage();
+      if (cov) hero.append(cov);
+      previewEl.append(hero);
+    }
+
+    /** One lane per source (enabled + disabled), coloured by identity, on a shared time axis. */
+    function buildCoverage(): HTMLElement | null {
+      const laneData = layers
+        .map((l) => ({ layer: l, span: timeSpan(l.records) }))
+        .filter((x): x is { layer: Layer; span: { min: number; max: number } } => x.span !== null);
+      if (laneData.length === 0) return null;
+      let T0 = Infinity, T1 = -Infinity;
+      for (const { span } of laneData) { T0 = Math.min(T0, span.min); T1 = Math.max(T1, span.max); }
+      const range = Math.max(1, T1 - T0);
+
+      const fig = el("figure", "ob-cov");
+      fig.setAttribute(
+        "aria-label",
+        "Date coverage by source: " +
+          laneData.map((x) => `${x.layer.label}, ${monthYear(x.span.min)} to ${monthYear(x.span.max)}`)
+            .join("; ") + ".",
+      );
+      const lanes = el("div", "ob-cov-lanes");
+      for (const { layer, span } of laneData) {
+        const lane = el("div", "ob-cov-lane" + (layer.enabled ? "" : " is-off"));
+        const seg = el("span", "ob-cov-seg");
+        seg.style.left = `${((span.min - T0) / range) * 100}%`;
+        seg.style.width = `${Math.max(1.5, ((span.max - span.min) / range) * 100)}%`;
+        seg.style.background = srcVar(layer.source);
+        seg.title = `${layer.label}: ${monthYear(span.min)} – ${monthYear(span.max)}`;
+        lane.append(seg);
+        lanes.append(lane);
+      }
+      fig.append(lanes);
+
+      const axis = el("figcaption", "ob-cov-axis");
+      const startY = new Date(T0).getUTCFullYear();
+      const endY = new Date(T1).getUTCFullYear();
+      const step = Math.max(1, Math.ceil((endY - startY + 1) / 6));
+      for (let y = startY; y <= endY; y += step) {
+        const pos = ((Date.UTC(y, 0, 1) - T0) / range) * 100;
+        const tick = el("span", "ob-cov-tick", String(y));
+        tick.style.left = `${Math.min(98, Math.max(0, pos))}%`;
+        axis.append(tick);
+      }
+      fig.append(axis);
+      return fig;
+    }
+
+    // --- 2. merge receipt strip ----------------------------------------------------------
+    function buildMergeStrip(stats: MergeStats) {
+      const strip = el("div", "ob-merge-strip");
+      strip.setAttribute("role", "status");
+      const item = (num: string, label: string, accent?: string) => {
+        const s = el("span", "ob-ms-item");
+        const b = el("b", accent ? "ob-ms-" + accent : undefined, num);
+        s.append(b, document.createTextNode(" " + label));
+        return s;
+      };
+      const dot = () => el("span", "ob-ms-dot", "·");
+      const parts: HTMLElement[] = [
+        item(nf0.format(stats.sources), `source${stats.sources === 1 ? "" : "s"} merged`),
+        item(nf0.format(stats.total), `record${stats.total === 1 ? "" : "s"}`),
+      ];
+      if (stats.exactCollapsed > 0) {
+        parts.push(item(
+          nf0.format(stats.exactCollapsed),
+          `exact duplicate${stats.exactCollapsed === 1 ? "" : "s"} merged`, "accent",
+        ));
+      }
+      if (stats.linked > 0) {
+        parts.push(item(nf0.format(stats.linked), `cross-source session${stats.linked === 1 ? "" : "s"} linked`));
+      }
+      parts.forEach((p, i) => { if (i > 0) strip.append(dot()); strip.append(p); });
+      strip.append(dot());
+      strip.append(el("span", "ob-ms-kept", "nothing deleted"));
+
+      const how = el("details", "ob-ms-how");
+      how.append(el("summary", undefined, "how the merge worked"));
+      how.append(el(
+        "p", undefined,
+        "Records with identical content collapse to one (and are remembered as appearing in " +
+        "several apps). Sessions that look like the same workout logged twice — same day, " +
+        "overlapping content — are linked, never removed, so both stay present and cross-" +
+        "referenced. Re-importing an openbody.json you exported before adds only what's new.",
+      ));
+      strip.append(how);
+      previewEl.append(strip);
+    }
+
+    // --- 3. source chips -----------------------------------------------------------------
+    function buildChips() {
+      const section = el("section", "ob-sources");
+      section.setAttribute("aria-label", "Sources — toggle to include or exclude");
+      const head = el("div", "ob-sources-head");
+      head.append(el("h3", "ob-sources-h", "Sources"));
+      head.append(el(
+        "p", "ob-sources-hint",
+        "Toggle a source to include or exclude it everywhere below. Turning one off never loses data.",
+      ));
+      section.append(head);
+
+      const row = el("div", "ob-chips-row");
+      for (const layer of layers) {
+        const chip = el("div", "ob-chip2" + (layer.enabled ? "" : " is-off"));
+        const toggle = el("button", "ob-chip2-toggle");
+        toggle.type = "button";
+        toggle.setAttribute("aria-pressed", String(layer.enabled));
+        const dot = el("span", "ob-chip2-dot");
+        dot.style.background = srcVar(layer.source);
+        dot.setAttribute("aria-hidden", "true");
+        toggle.append(dot, document.createTextNode(layer.label));
+        toggle.append(el("span", "ob-chip2-n",
+          `${layer.records.length} rec${layer.records.length === 1 ? "" : "s"}`));
+        toggle.addEventListener("click", () => { layer.enabled = !layer.enabled; renderAll(); });
+
+        const remove = el("button", "ob-chip2-remove", "×");
         remove.type = "button";
-        remove.className = "ob-layer-remove";
-        remove.textContent = "Remove";
         remove.setAttribute("aria-label", `Remove ${layer.fileName}`);
         remove.addEventListener("click", () => {
           layers = layers.filter((l) => l.id !== layer.id);
           renderAll();
         });
 
-        li.append(toggle, remove);
-        if (layer.note) {
-          const note = document.createElement("p");
-          note.className = "ob-layer-note";
-          note.textContent = layer.note;
-          li.append(note);
-        }
-        list.append(li);
+        chip.append(toggle, remove);
+        row.append(chip);
       }
-      layersEl.append(list);
-      layersEl.hidden = false;
-    }
-
-    function renderSubjectNote() {
-      if (layers.length === 0) {
-        subjectNoteEl.hidden = true;
-        subjectNoteEl.replaceChildren();
-        return;
-      }
-      const noSubject = (subjectInput?.value.trim() || "") === "";
-      const usesDefault = noSubject && layers.some((l) => l.source !== "openbody");
-      subjectNoteEl.textContent = usesDefault
-        ? `The Subject ID applies to every file, so cross-source records can be de-duplicated. ` +
-          `No ID given, so a placeholder “${DEFAULT_SUBJECT}” is used — set one above to use your own.`
-        : `The Subject ID applies to every file, so records from different apps share one subject ` +
-          `and are de-duplicated across sources.`;
-      subjectNoteEl.hidden = false;
-    }
-
-    /** A titled dashboard panel; returns its body element to render sub-sections into. */
-    function panel(title: string): HTMLElement {
-      const section = document.createElement("section");
-      section.className = "ob-panel";
-      const h = document.createElement("h3");
-      h.className = "ob-panel-title";
-      h.textContent = title;
-      const body = document.createElement("div");
-      body.className = "ob-panel-body";
-      section.append(h, body);
+      section.append(row);
       previewEl.append(section);
-      return body;
     }
 
-    /** A fresh sub-section div inside a panel body (each renderer owns its own container). */
-    function sub(host: HTMLElement): HTMLElement {
-      const div = document.createElement("div");
-      host.append(div);
-      return div;
-    }
+    // --- 4. stat tiles -------------------------------------------------------------------
+    function buildTiles(
+      strengthSessions: any[], enduranceSessions: any[], measurements: any[],
+      merged: any[], trend: BodyweightTrend | null,
+    ) {
+      interface Tile { label: string; value: string; unit?: string; chip?: string; }
+      const tiles: Tile[] = [];
+      const thisYear = new Date().getUTCFullYear();
 
-    function renderMergeStats(stats: MergeStats) {
-      summaryEl.replaceChildren();
-      const line = document.createElement("p");
-      line.className = "ob-merge-stats";
-      const bits = [
-        `${stats.total} record${stats.total === 1 ? "" : "s"} from ` +
-          `${stats.sources} source${stats.sources === 1 ? "" : "s"}`,
-      ];
-      if (stats.exactCollapsed > 0) {
-        bits.push(`${stats.exactCollapsed} duplicate${stats.exactCollapsed === 1 ? "" : "s"} merged`);
-      }
-      if (stats.linked > 0) bits.push(`${stats.linked} linked across sources`);
-      line.textContent = bits.join(" · ");
-      summaryEl.append(line);
-      summaryEl.hidden = false;
-    }
-
-    function renderDashboard() {
-      // Reset every dashboard surface (the layer list persists — it's the control).
-      summaryEl.replaceChildren();
-      summaryEl.hidden = true;
-      resolutionEl.replaceChildren();
-      resolutionEl.hidden = true;
-      previewEl.replaceChildren();
-      previewEl.hidden = true;
-      strongInfoEl.replaceChildren();
-      strongInfoEl.hidden = true;
-      downloadBtn.hidden = true;
-      downloadStrongBtn.hidden = true;
-      lastMerged = null;
-      lastStrong = null;
-
-      const enabled = layers.filter((l) => l.enabled);
-      if (enabled.length === 0) {
-        if (layers.length > 0) {
-          const p = document.createElement("p");
-          p.className = "ob-merge-stats";
-          p.textContent = "All sources are toggled off — enable at least one above.";
-          summaryEl.append(p);
-          summaryEl.hidden = false;
-        }
-        return;
+      const sessionsN = strengthSessions.length + enduranceSessions.length;
+      if (sessionsN > 0) {
+        const yr = merged.filter(
+          (r) => r.recordType === "Session" && new Date(String(r.startTime ?? "")).getUTCFullYear() === thisYear,
+        ).length;
+        tiles.push({ label: "Workouts", value: nf0.format(sessionsN), chip: yr > 0 ? `${nf0.format(yr)} this year` : undefined });
       }
 
-      const { merged, stats } = mergeLayers(
-        enabled.map((l) => ({
-          id: l.id,
-          label: l.label,
-          records: l.records,
-          enabled: true,
-          namespaced: l.namespaced,
-        })),
-      );
-      lastMerged = merged;
-      lastBaseName =
-        enabled.length === 1
-          ? enabled[0].fileName.replace(/\.(csv|xml|json)$/i, "") || "openbody-export"
-          : "openbody-merged";
+      let volume = 0;
+      for (const s of collectStrengthSets(merged)) {
+        if (s.weightKg && s.reps) volume += s.weightKg * s.reps;
+      }
+      if (volume > 0) {
+        const big = bigKg(volume);
+        tiles.push({ label: "Total volume lifted", value: big.v, unit: big.unit });
+      }
 
-      renderMergeStats(stats);
-      // Make the preview visible before building panels so inline-SVG charts can size
-      // themselves from their real container width.
-      previewEl.hidden = false;
-
-      const merges = merged as any[];
-      const strengthSessions = merges.filter((r) => r.recordType === "Session" && hasSets(r));
-      const enduranceSessions = merges.filter((r) => r.recordType === "Session" && !hasSets(r));
-      const measurements = merges.filter((r) => r.recordType === "Measurement");
-
-      // Body measurements first — the bodyweight EWMA trend is the headline "aha", and it now
-      // spans EVERY body_mass source in the merge (Hevy measurements + Apple body mass + …).
       if (measurements.length > 0) {
-        const body = panel("Body measurements");
-        renderMeasurementsSummary(summarizeMeasurements(measurements as any), sub(body));
-        renderMeasurementsPreview(measurements as any, sub(body));
+        let chip: string | undefined;
+        if (trend) {
+          const d = trend.last.trend - trend.first.trend;
+          if (Math.abs(d) >= 0.05) chip = `${d < 0 ? "▼" : "▲"} ${nf1.format(Math.abs(d))} ${trend.unit}`;
+        }
+        tiles.push({ label: "Body measurements", value: nf0.format(measurements.length), chip });
       }
 
-      // Strength — summary + exercise resolution + per-session breakdown, over every strength
-      // source in the merge (Hevy + Strong).
-      if (strengthSessions.length > 0) {
-        const body = panel("Strength training");
-        renderSummary(summarizeUnified(strengthSessions as any, "strength"), "strength", sub(body));
-        renderResolution(strengthSessions as any, sub(body));
-        renderPreview(strengthSessions as any, sub(body));
-        lastStrong = mapOpenBodyToStrong(strengthSessions as any);
-        renderStrongInfo(lastStrong, sub(body));
-        downloadStrongBtn.hidden = false;
-      }
-
-      // Endurance & activities — Strava + Apple Health sessions.
       if (enduranceSessions.length > 0) {
-        const body = panel("Endurance & activities");
-        renderSummary(summarizeUnified(enduranceSessions as any, "endurance"), "endurance", sub(body));
-        renderEndurancePreview(enduranceSessions as any, sub(body));
+        tiles.push({ label: "Endurance sessions", value: nf0.format(enduranceSessions.length) });
+      }
+      if (tiles.length === 0) return;
+
+      const grid = el("section", "ob-tiles");
+      grid.setAttribute("aria-label", "At a glance");
+      for (const t of tiles) {
+        const tile = el("div", "ob-tile");
+        tile.append(el("span", "ob-tile-label", t.label));
+        const v = el("span", "ob-tile-value", t.value);
+        if (t.unit) v.append(el("span", "ob-tile-unit", t.unit));
+        tile.append(v);
+        if (t.chip) tile.append(el("span", "ob-tile-chip", t.chip));
+        grid.append(tile);
+      }
+      previewEl.append(grid);
+    }
+
+    // --- 5. bodyweight EWMA hero ---------------------------------------------------------
+    function buildBodyweightCard(trend: BodyweightTrend) {
+      const card = cardShell("ob-chartcard");
+      cardHead(
+        card, "Bodyweight",
+        "Every reading, with a smoothed trend that strips daily water-weight noise.",
+      );
+      const wrap = chartWrap(card);
+      const phases = bulkCutPhases(trend.points)
+        .filter((p) => p.label !== "maintain")
+        .map((p) => ({ startMs: p.startMs, endMs: p.endMs, label: p.label }));
+      wrap.append(buildLineChart(
+        trend.points.map((p) => ({ t: p.t, raw: p.value, trend: p.trend })),
+        { unit: trend.unit, label: "Bodyweight trend", containerWidth: chartWidth(wrap), phases },
+      ));
+
+      const delta = trend.last.trend - trend.first.trend;
+      const perMonth = seriesSpanDays(trend.points.map((p) => ({ dateMs: p.t })));
+      const rate = perMonth > 30 ? Math.abs(delta) / (perMonth / 30.44) : 0;
+      const dirWord = Math.abs(delta) < 0.05 ? "held steady" : delta < 0 ? "trending down" : "trending up";
+      const take = takeaway(
+        delta < -0.05 ? "↘" : delta > 0.05 ? "↗" : "→",
+        Math.abs(delta) < 0.05
+          ? `Bodyweight has held steady around ${nf1.format(trend.last.trend)}${THIN}${trend.unit}.`
+          : `${cap(dirWord)} — about ${nf1.format(rate || Math.abs(delta))}${THIN}${trend.unit} ` +
+            `${rate ? "a month" : "overall"}.`,
+      );
+      const bands = phases.length
+        ? " Shaded bands mark sustained bulk and cut phases in the smoothed trend."
+        : "";
+      card.append(take);
+      card.append(caveat(
+        `Smoothed with an exponentially-weighted moving average (~${Math.round(1 / trend.alpha)}-reading ` +
+        `memory); same-day readings from two apps are averaged.${bands}`,
+      ));
+    }
+
+    // --- 6. insight-card dispatch --------------------------------------------------------
+    function buildInsightCard(block: PlannedBlock, merged: any[], bwSeries: DailyValue[]) {
+      switch (block.id) {
+        case "pr-timeline": return buildPrCard(merged);
+        case "volume-muscle-group": return buildVolumeCard(merged);
+        case "relative-strength": return buildRelCard(merged, bwSeries);
+        case "calisthenics-progress": return buildCalCard(merged, bwSeries);
+        case "endurance-trends": return buildEndCard(merged);
+        default: return; // bodyweight-trend / bulk-cut handled by the hero; nothing else planned
+      }
+    }
+
+    // PR card — takeaway + PR table (with "forgotten" tag) + optional e1RM line (PR rings +
+    // lift switcher). The plan only lists this block when ≥1 lift has ≥3 sessions.
+    function buildPrCard(merged: any[]) {
+      const lifts = prTimeline(merged);
+      if (lifts.length === 0) return;
+      const card = cardShell("ob-insight");
+
+      const now = Date.now();
+      const yearAgo = now - 365 * DAY_MS;
+      let prCount = 0, forgot = 0;
+      for (const l of lifts) {
+        for (const e of l.prEvents) {
+          if (e.dateMs >= yearAgo) { prCount++; if (e.forgotten) forgot++; }
+        }
+      }
+      const take = el("p", "ob-insight-take");
+      const ico = el("span", "ob-insight-ico", "◆");
+      ico.setAttribute("aria-hidden", "true");
+      take.append(ico);
+      if (prCount > 0) {
+        take.append(document.createTextNode(" You set "));
+        take.append(el("b", undefined, `${nf0.format(prCount)} personal record${prCount === 1 ? "" : "s"}`));
+        take.append(document.createTextNode(" in the last year"));
+        if (forgot > 0) {
+          take.append(document.createTextNode(" — including "));
+          take.append(el("b", undefined, `${nf0.format(forgot)} you'd forgotten`));
+        }
+        take.append(document.createTextNode("."));
+      } else {
+        take.append(document.createTextNode(" Your best estimated 1-rep maxes across "));
+        take.append(el("b", undefined, `${nf0.format(lifts.length)} lift${lifts.length === 1 ? "" : "s"}`));
+        take.append(document.createTextNode("."));
+      }
+      card.append(take);
+
+      // PR table (top lifts by best e1RM).
+      const wrap = el("div", "ob-tablewrap");
+      const table = el("table", "ob-dtable");
+      const thead = el("thead");
+      const hr = el("tr");
+      for (const [txt, cls] of [["Lift", ""], ["Best e1RM", "num"], ["From the set", ""], ["When", ""], ["", ""]] as const) {
+        const th = el("th", cls || undefined, txt);
+        hr.append(th);
+      }
+      thead.append(hr);
+      const tbody = el("tbody");
+      for (const l of lifts.slice(0, 6)) {
+        const tr = el("tr");
+        tr.append(el("td", undefined, l.label));
+        tr.append(el("td", "num", `${nf0.format(l.bestE1rm)} kg`));
+        tr.append(el("td", undefined, `${nf0.format(l.bestSet.weightKg)} kg × ${l.bestSet.reps}`));
+        tr.append(el("td", undefined, dayFmt(l.bestSet.day)));
+        const prEvt = l.prEvents.find((e) => Math.abs(e.e1rm - l.bestE1rm) < 1e-6);
+        const tagTd = el("td");
+        if (prEvt?.forgotten) {
+          const tag = el("span", "ob-tag ob-tag-forgot", "forgotten");
+          tag.title = "Beat your old best on a set that didn't look like a max attempt";
+          tagTd.append(tag);
+        } else if (l.bestSet.dateMs >= now - 45 * DAY_MS) {
+          tagTd.append(el("span", "ob-tag ob-tag-new", "new"));
+        }
+        tr.append(tagTd);
+        tbody.append(tr);
+      }
+      table.append(thead, tbody);
+      wrap.append(table);
+      card.append(wrap);
+
+      // Optional e1RM line + lift switcher (only lifts with a chartable series).
+      const chartable = lifts.filter((l) => l.series.length >= 10 && seriesSpanDays(l.series) >= 14).slice(0, 4);
+      if (chartable.length > 0) {
+        const sub = cardHead(card, "Estimated 1-rep max");
+        sub.classList.add("ob-head-row");
+        let current = chartable[0];
+        const subP = el("p", "ob-card-sub");
+        const cWrap = chartWrap(card);
+        const takeP = el("p", "ob-takeaway");
+
+        const draw = () => {
+          cWrap.replaceChildren();
+          const first = current.series[0].e1rm;
+          const last = current.series[current.series.length - 1].e1rm;
+          const d = last - first;
+          cWrap.append(buildLineChart(
+            current.series.map((p) => ({ t: p.dateMs, raw: p.e1rm, trend: p.e1rm })),
+            {
+              unit: "kg", label: `${current.label} estimated 1-rep max`, containerWidth: chartWidth(cWrap),
+              prs: current.prEvents.map((e) => ({ t: e.dateMs, value: e.e1rm })),
+            },
+          ));
+          subP.textContent = `${current.label}, estimated from every logged set. Rings mark a new all-time best.`;
+          takeP.replaceChildren();
+          const tIco = el("span", "ob-take-ico", d < 0 ? "↘" : "↗");
+          tIco.setAttribute("aria-hidden", "true");
+          takeP.append(tIco, el("b", undefined,
+            `${d < 0 ? "Down" : "Up"} ~${nf0.format(Math.abs(d))}${THIN}kg over ${
+              Math.round(seriesSpanDays(current.series) / 30.44)} months.`));
+        };
+
+        if (chartable.length > 1) {
+          const sw = el("div", "ob-lift-switch");
+          sw.setAttribute("role", "tablist");
+          sw.setAttribute("aria-label", "Choose lift");
+          for (const l of chartable) {
+            const b = el("button", undefined, l.label);
+            b.type = "button";
+            b.setAttribute("role", "tab");
+            b.setAttribute("aria-selected", String(l === current));
+            b.addEventListener("click", () => {
+              current = l;
+              for (const btn of sw.querySelectorAll("button")) {
+                btn.setAttribute("aria-selected", String(btn === b));
+              }
+              draw();
+            });
+            sw.append(b);
+          }
+          sub.append(sw);
+        }
+        card.append(subP);
+        // chart wrap already appended by chartWrap(card); move sub description before it.
+        card.insertBefore(subP, cWrap);
+        card.append(takeP);
+        draw();
       }
 
-      // One raw-records expander over the whole merged, deduped set.
-      appendRawRecords(previewEl, merged);
-      downloadBtn.hidden = false;
+      card.append(caveat(
+        "e1RM is estimated from your logged reps & weight (Epley), not a tested one-rep max. " +
+        "A \"forgotten\" PR beat a prior best on a set that didn't look like a max attempt.",
+      ));
+    }
+
+    // Volume small-multiples per muscle group over the last 12 weeks, with a plateau flag.
+    function buildVolumeCard(merged: any[]) {
+      const vol = volumeByMuscleGroup(merged, 12);
+      if (vol.groups.length === 0) return;
+      const card = cardShell();
+      cardHead(
+        card, "Weekly volume by muscle group",
+        "Working sets per week over the last 12 weeks. A flat run is flagged — sometimes that's maintenance.",
+      );
+      const rows = el("div", "ob-volrows");
+      for (const g of vol.groups.slice(0, 6)) {
+        const row = el("div", "ob-volrow");
+        row.append(el("div", "ob-vol-label", cap(g.group)));
+
+        const sparkHost = el("div", "ob-vol-spark");
+        const width = 220;
+        sparkHost.append(buildSparkline(
+          g.weekly.map((w) => ({ bucketStart: w.weekStart, value: w.sets })),
+          "week", "sets", width,
+        ));
+        row.append(sparkHost);
+
+        const last = g.weekly[g.weekly.length - 1]?.sets ?? 0;
+        const firstTrained = g.weekly.find((w) => w.sets > 0)?.sets ?? 0;
+        const meta = el("div", "ob-vol-meta");
+        meta.append(document.createTextNode(`${nf0.format(last)} sets/wk`));
+        meta.append(document.createElement("br"));
+        if (g.plateau) {
+          meta.append(el("span", "ob-vol-flag", "— plateau"));
+        } else {
+          const d = last - firstTrained;
+          meta.append(el("span", "ob-vol-flag", `${d > 0 ? "▲ +" : d < 0 ? "▼ " : "→ "}${nf0.format(Math.abs(d))} / 12wk`));
+        }
+        row.append(meta);
+        rows.append(row);
+      }
+      card.append(rows);
+      card.append(caveat(
+        "Sets counted from exercises mapped to each group (a coarse, group-level heuristic); a " +
+        "\"plateau\" flag means weekly sets held within ±10% for 6+ weeks.",
+      ));
+    }
+
+    // Relative strength (lift ÷ bodyweight) — the "stronger while lighter" story.
+    function buildRelCard(merged: any[], bwSeries: DailyValue[]) {
+      const rel = relativeStrength(merged, bwSeries);
+      if (rel.length === 0) return;
+      const card = cardShell();
+      cardHead(card, "Relative strength", "Each loaded lift's estimated 1-rep max as a multiple of bodyweight.");
+
+      const swl = rel.find((r) => r.strongerWhileLighter);
+      if (swl) {
+        card.append(takeaway("↗",
+          `You're getting stronger while getting lighter — ${swl.label} rose while your bodyweight fell.`));
+      } else {
+        const top = [...rel].sort((a, b) => b.last.ratio - a.last.ratio)[0];
+        card.append(takeaway("→",
+          `${top.label} sits at ${nf1.format(top.last.ratio)}× bodyweight, your strongest lift relative to weight.`));
+      }
+
+      const wrap = el("div", "ob-tablewrap");
+      const table = el("table", "ob-dtable");
+      const thead = el("thead");
+      const hr = el("tr");
+      for (const [txt, cls] of [["Lift", ""], ["Then", "num"], ["Now", "num"], ["Bodyweight", ""]] as const) {
+        hr.append(el("th", cls || undefined, txt));
+      }
+      thead.append(hr);
+      const tbody = el("tbody");
+      for (const r of [...rel].sort((a, b) => b.last.ratio - a.last.ratio).slice(0, 6)) {
+        const tr = el("tr");
+        tr.append(el("td", undefined, r.label));
+        tr.append(el("td", "num", `${nf1.format(r.first.ratio)}×`));
+        tr.append(el("td", "num", `${nf1.format(r.last.ratio)}×`));
+        const bwWord = r.bodyweightDirection === "down" ? "lighter" : r.bodyweightDirection === "up" ? "heavier" : "steady";
+        tr.append(el("td", undefined, bwWord));
+        tbody.append(tr);
+      }
+      table.append(thead, tbody);
+      wrap.append(table);
+      card.append(wrap);
+
+      const sparse = rel.some((r) => r.sparse);
+      if (sparse) {
+        const chip = el("p", "ob-conf");
+        chip.append(el("span", "ob-conf-chip", "indicative"));
+        chip.append(document.createTextNode(" — some lifts had no bodyweight reading nearby, so the ratio is approximate."));
+        card.append(chip);
+      }
+      card.append(caveat(
+        "Each lift's e1RM is matched to the nearest bodyweight reading (exact day where possible, " +
+        "else the closest within two weeks).",
+      ));
+    }
+
+    // Calisthenics progress — max-reps trend + any weighted PRs (lead card for that profile).
+    function buildCalCard(merged: any[], bwSeries: DailyValue[]) {
+      const cal = calisthenicsProgress(merged, bwSeries).filter((c) => c.sessionCount >= 3);
+      if (cal.length === 0) return;
+      const card = cardShell();
+      cardHead(card, "Calisthenics progress", "Best unbroken set per movement over your logged history.");
+
+      const best = [...cal].sort((a, b) => b.bestReps - a.bestReps)[0];
+      card.append(takeaway("◆",
+        `Up to ${nf0.format(best.bestReps)} unbroken ${best.label.toLowerCase()} — your best single set.`));
+
+      const wrap = el("div", "ob-tablewrap");
+      const table = el("table", "ob-dtable");
+      const thead = el("thead");
+      const hr = el("tr");
+      for (const [txt, cls] of [["Movement", ""], ["Best reps", "num"], ["Progression", ""], ["Sessions", "num"]] as const) {
+        hr.append(el("th", cls || undefined, txt));
+      }
+      thead.append(hr);
+      const tbody = el("tbody");
+      for (const c of cal.slice(0, 6)) {
+        const tr = el("tr");
+        tr.append(el("td", undefined, c.label));
+        tr.append(el("td", "num", nf0.format(c.bestReps)));
+        const sparkTd = el("td");
+        if (c.repMaxSeries.length >= 3) {
+          sparkTd.append(buildSparkline(
+            c.repMaxSeries.map((p) => ({ bucketStart: p.day, value: p.bestReps })),
+            "week", "sets", 140,
+          ));
+        } else {
+          sparkTd.textContent = "—";
+        }
+        tr.append(sparkTd);
+        tr.append(el("td", "num", nf0.format(c.sessionCount)));
+        tbody.append(tr);
+      }
+      table.append(thead, tbody);
+      wrap.append(table);
+      card.append(wrap);
+      card.append(caveat(
+        "Bodyweight movements recognised by name (weighted and assisted variants included). " +
+        "Progression sparklines show best reps per session over time.",
+      ));
+    }
+
+    // Endurance — weekly distance + a per-discipline pace/speed trend (lead for that profile).
+    function buildEndCard(merged: any[]) {
+      const end = enduranceTrends(merged);
+      if (end.weekly.length === 0) return;
+      const card = cardShell("ob-chartcard");
+      cardHead(card, "Endurance", "Weekly distance and how your pace is trending by discipline.");
+
+      const topDisc = [...end.disciplines].sort((a, b) => b.points.length - a.points.length)[0];
+      const distWord = end.distanceTrend === "up" ? "rising" : end.distanceTrend === "down" ? "easing off" : "steady";
+      let takeText = `Weekly distance is ${distWord} — ${nf1.format(end.totalKm)}${THIN}km logged across ${
+        nf0.format(end.activeWeeks)} active weeks.`;
+      if (topDisc && topDisc.trend !== "flat") {
+        const metric = topDisc.metric === "pace" ? "pace" : "speed";
+        takeText = `Your ${topDisc.discipline} ${metric} is ${topDisc.trend}, and weekly distance is ${distWord}.`;
+      }
+      card.append(takeaway(end.distanceTrend === "down" ? "↘" : "↗", takeText));
+
+      const wrap = chartWrap(card);
+      wrap.append(buildSparkline(
+        end.weekly.map((w) => ({ bucketStart: w.weekStart, value: w.km })),
+        "week", "km", chartWidth(wrap),
+      ));
+
+      if (end.disciplines.length > 0) {
+        const list = el("ul", "ob-disc-list");
+        for (const d of [...end.disciplines].sort((a, b) => b.points.length - a.points.length).slice(0, 4)) {
+          if (d.points.length < 2) continue;
+          const li = el("li");
+          li.append(el("b", undefined, cap(d.discipline)));
+          const word = d.trend === "flat" ? "holding steady"
+            : d.metric === "pace" ? (d.trend === "improving" ? "getting faster" : "slowing")
+            : (d.trend === "improving" ? "getting faster" : "slowing");
+          li.append(document.createTextNode(` — ${word} over ${nf0.format(d.points.length)} sessions`));
+          list.append(li);
+        }
+        if (list.childElementCount > 0) card.append(list);
+      }
+      card.append(caveat(
+        "Pace (sec/km) for run-style disciplines, speed (km/h) for cycling-style; trend compares " +
+        "your first third of sessions to your last third.",
+      ));
+    }
+
+    // --- 7. details & raw records (collapsed) --------------------------------------------
+    function buildDetails(
+      merged: any[], strengthSessions: any[], enduranceSessions: any[], measurements: any[],
+    ) {
+      const details = el("details", "ob-details");
+      details.append(el("summary", undefined, "Details & raw records"));
+      const body = el("div", "ob-details-body");
+
+      const subDiv = () => { const d = el("div"); body.append(d); return d; };
+
+      if (measurements.length > 0) {
+        body.append(el("h4", "ob-details-h", "Body measurements"));
+        renderMeasurementsSummary(summarizeMeasurements(measurements as any), subDiv());
+        renderMeasurementsTable(measurements, subDiv());
+      }
+      if (strengthSessions.length > 0) {
+        body.append(el("h4", "ob-details-h", "Strength training"));
+        renderSummary(summarizeUnified(strengthSessions as any, "strength"), "strength", subDiv());
+        renderResolution(strengthSessions as any, subDiv());
+        renderPreview(strengthSessions as any, subDiv());
+        if (lastStrong) renderStrongInfo(lastStrong, subDiv());
+      }
+      if (enduranceSessions.length > 0) {
+        body.append(el("h4", "ob-details-h", "Endurance & activities"));
+        renderSummary(summarizeUnified(enduranceSessions as any, "endurance"), "endurance", subDiv());
+        renderEndurancePreview(enduranceSessions as any, subDiv());
+      }
+      appendRawRecords(body, merged);
+
+      details.append(body);
+      previewEl.append(details);
+    }
+
+    // --- 8. three-tier import notes ------------------------------------------------------
+    // clean ✓ / info ⓘ / warning ⚠. Red is reserved for a true parse failure (which never
+    // produces a layer — those surface in the status line), so it isn't a tier here.
+    // Info covers defaults + format limitations; warning covers records actually dropped.
+    const WARN_CODES = new Set([
+      "extra-sessions-dropped", "extra-workouts-dropped", "skipped-entries", "skipped-record",
+      "skipped-file", "unparseable-date", "unrecognized-file", "no-mappable-content",
+    ]);
+    function buildNotes(enabled: Layer[], strengthSessions: any[], measurements: any[]) {
+      interface Note { tier: "good" | "info" | "warn"; html: (Node | string)[]; }
+      const notes: Note[] = [];
+
+      const inputTotal = enabled.reduce((a, l) => a + l.records.length, 0);
+      const invalidTotal = enabled.reduce((a, l) => a + (l.invalidCount ?? 0), 0);
+      const grandTotal = inputTotal + invalidTotal;
+      notes.push({
+        tier: "good",
+        html: [
+          el("b", undefined,
+            invalidTotal > 0
+              ? `${nf0.format(inputTotal)} of ${nf0.format(grandTotal)} records imported cleanly.`
+              : `${nf0.format(inputTotal)} record${inputTotal === 1 ? "" : "s"} imported cleanly.`),
+          " Everything shown is kept and lossless — nothing was dropped silently.",
+        ],
+      });
+
+      // Warnings from the mappers, grouped by code.
+      const byCode = new Map<string, { message: string; count: number }>();
+      let sawDefaultSubject = false;
+      for (const l of enabled) {
+        for (const w of l.warnings) {
+          if (w.code === "default-subject") { sawDefaultSubject = true; continue; }
+          const cur = byCode.get(w.code) ?? { message: w.message, count: 0 };
+          cur.count++;
+          byCode.set(w.code, cur);
+        }
+      }
+      for (const [code, { message, count }] of byCode) {
+        notes.push({
+          tier: WARN_CODES.has(code) ? "warn" : "info",
+          html: [el("b", undefined, message), count > 1 ? ` (${nf0.format(count)} occurrences)` : ""],
+        });
+      }
+
+      // Subject placeholder (info) — from either the warning or the no-subject-given state.
+      const noSubject = (subjectInput?.value.trim() || "") === "";
+      if (sawDefaultSubject || (noSubject && enabled.some((l) => l.source !== "openbody"))) {
+        const frag: (Node | string)[] = [
+          el("b", undefined, "No subject ID given"),
+          `, so records share an anonymous placeholder (“${DEFAULT_SUBJECT}”). Set one above to label this dataset as you.`,
+        ];
+        notes.push({ tier: "info", html: frag });
+      }
+
+      // Unresolved exercise names (info) — kept as lossless free text.
+      if (strengthSessions.length > 0) {
+        const names = new Set<string>();
+        for (const s of strengthSessions) {
+          const exercises = [
+            ...(s.exercises ?? []),
+            ...((s.blocks ?? []).flatMap((b: any) => b.children ?? [])),
+          ];
+          for (const ex of exercises) {
+            const er = ex?.exerciseRef;
+            if (er === undefined) continue;
+            const id = typeof er === "string" ? er : er.id;
+            const opaque = typeof er === "string" ? undefined : er.opaque;
+            if (id === undefined && opaque) names.add(opaque);
+          }
+        }
+        if (names.size > 0) {
+          notes.push({
+            tier: "info",
+            html: [
+              el("b", undefined,
+                `${nf0.format(names.size)} exercise name${names.size === 1 ? "" : "s"} not in the OpenBody registry yet`),
+              ", so they're kept as free text — still valid, just not yet standardised.",
+            ],
+          });
+        }
+      }
+
+      // Namespaced measurement types (info) — registry-gap fallbacks.
+      if (measurements.length > 0) {
+        const ns = measurementTable(measurements).columns.filter((c) => c.namespaced).length;
+        if (ns > 0) {
+          notes.push({
+            tier: "info",
+            html: [
+              el("b", undefined, `${nf0.format(ns)} measurement type${ns === 1 ? "" : "s"} have no canonical registry type yet`),
+              ", so they're kept under a namespaced token — lossless and still schema-valid.",
+            ],
+          });
+        }
+      }
+
+      // Records dropped on re-import (warn).
+      for (const l of enabled) {
+        if ((l.invalidCount ?? 0) > 0) {
+          notes.push({
+            tier: "warn",
+            html: [
+              el("b", undefined,
+                `${nf0.format(l.invalidCount!)} record${l.invalidCount === 1 ? "" : "s"} from ${l.fileName} failed validation`),
+              " and were skipped — not counted, not exported.",
+            ],
+          });
+        }
+      }
+
+      const section = el("section", "ob-card ob-notes");
+      section.setAttribute("aria-labelledby", "ob-notes-h");
+      const h = el("h3", "ob-notes-h", "Import notes");
+      h.id = "ob-notes-h";
+      section.append(h);
+      const ICON = { good: "✓", info: "ⓘ", warn: "⚠" } as const;
+      for (const n of notes) {
+        const note = el("div", `ob-note ob-note-${n.tier}`);
+        const ico = el("span", "ob-note-ico", ICON[n.tier]);
+        ico.setAttribute("aria-hidden", "true");
+        const body = el("div", "ob-note-body");
+        body.append(...n.html);
+        note.append(ico, body);
+        section.append(note);
+      }
+      previewEl.append(section);
+    }
+
+    // --- 9. export bar -------------------------------------------------------------------
+    function buildExportBar(merged: any[], hasStrength: boolean) {
+      const section = el("section", "ob-export");
+      section.setAttribute("aria-label", "Export your unified history");
+      const copy = el("div", "ob-export-copy");
+      copy.append(el("h3", "ob-export-h", "Take it with you"));
+      copy.append(el("p", undefined,
+        "One file, every source, yours to keep. Re-import it here anytime to pick up where you " +
+        "left off — no account, nothing locked in."));
+      copy.append(el("p", "ob-export-advocacy",
+        "Most fitness apps keep your history siloed. OpenBody is a neutral, open format so it doesn't have to be."));
+      section.append(copy);
+
+      const actions = el("div", "ob-export-actions");
+      // Relocate the real download buttons (their click handlers live on the nodes, so moving
+      // them preserves behaviour). downloadStrongBtn only when there's strength data.
+      actions.append(downloadBtn);
+      if (hasStrength) actions.append(downloadStrongBtn);
+      const note = el("span", "ob-export-note",
+        `🔒 Built in your browser · ${nf0.format(merged.length)} record${merged.length === 1 ? "" : "s"}`);
+      actions.append(note);
+      section.append(actions);
+      previewEl.append(section);
     }
 
     fileInput?.addEventListener("change", () => {
@@ -2156,6 +2963,379 @@ import { Aside } from "@astrojs/starlight/components";
     }
     .ob-email-status.is-pending {
       color: var(--sl-color-gray-3);
+    }
+
+    /* ===================================================================================
+       PHASE C — convert cockpit. One accent (the site's --sl-color-accent), calibrated
+       grays via --sl-color-*, tabular numerals, consistent chart grammar, both themes.
+       ================================================================================== */
+
+    /* CVD-validated categorical palette for SOURCE IDENTITY only (never for quantities).
+       Base :root carries the dark values (Starlight's base theme is dark); the light
+       overrides apply under [data-theme="light"]. */
+    :root,
+    :root[data-theme="dark"] {
+      --ob-src-hevy: #3e8fcb;
+      --ob-src-strong: #e3672f;
+      --ob-src-apple: #25a67d;
+      --ob-src-strava: #b67f14;
+      --ob-src-json: #be6e9c;
+    }
+    :root[data-theme="light"] {
+      --ob-src-hevy: #0072b2;
+      --ob-src-strong: #d55e00;
+      --ob-src-apple: #009e73;
+      --ob-src-strava: #e69f00;
+      --ob-src-json: #cc79a7;
+    }
+
+    .ob-preview :is(h2, h3, h4) { text-wrap: balance; }
+    .ob-num, .ob-dtable .num, .ob-tile-value, .ob-cov-tick { font-variant-numeric: tabular-nums; }
+
+    /* --- coverage hero --- */
+    .ob-hero { padding: 0.5rem 0 0; }
+    .ob-hero-eyebrow {
+      margin: 0 0 0.5rem;
+      font-family: var(--sl-font-mono);
+      font-size: var(--sl-text-xs);
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      color: var(--sl-color-text-accent);
+    }
+    .ob-hero-headline {
+      margin: 0;
+      font-size: clamp(1.4rem, 3.3vw, 2.1rem);
+      font-weight: 600;
+      line-height: 1.2;
+      letter-spacing: -0.02em;
+      color: var(--sl-color-gray-2);
+      max-width: 26ch;
+    }
+    .ob-hero-headline .ob-hl { color: var(--sl-color-white); font-variant-numeric: tabular-nums; }
+    .ob-hero-sub { margin: 0.85rem 0 0; font-size: var(--sl-text-sm); color: var(--sl-color-gray-3); }
+
+    .ob-cov { margin: 1.25rem 0 0; }
+    .ob-cov-lanes { display: flex; flex-direction: column; gap: 5px; }
+    .ob-cov-lane {
+      position: relative;
+      height: 14px;
+      border-radius: 5px;
+      background: var(--sl-color-gray-6);
+    }
+    .ob-cov-seg { position: absolute; top: 0; bottom: 0; border-radius: 5px; transition: opacity 0.2s ease; }
+    .ob-cov-lane.is-off .ob-cov-seg { opacity: 0.18; filter: grayscale(1); }
+    .ob-cov-axis {
+      position: relative;
+      height: 1.1rem;
+      margin-top: 6px;
+      font-family: var(--sl-font-mono);
+      font-size: var(--sl-text-xs);
+      color: var(--sl-color-gray-3);
+    }
+    .ob-cov-tick { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+    .ob-cov-tick:first-child { transform: none; }
+
+    /* --- merge receipt strip --- */
+    .ob-merge-strip {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px 10px;
+      padding: 0.65rem 0.95rem;
+      border: 1px solid var(--sl-color-hairline);
+      border-radius: 0.5rem;
+      background-color: var(--sl-color-bg-nav);
+      font-size: var(--sl-text-sm);
+      color: var(--sl-color-gray-2);
+    }
+    .ob-ms-item b { color: var(--sl-color-white); font-variant-numeric: tabular-nums; }
+    .ob-ms-item b.ob-ms-accent { color: var(--sl-color-text-accent); }
+    .ob-ms-dot { color: var(--sl-color-gray-4); }
+    .ob-ms-kept { color: var(--sl-color-text-accent); font-weight: 600; }
+    .ob-ms-how { flex-basis: 100%; margin-top: 2px; }
+    .ob-ms-how summary { cursor: pointer; color: var(--sl-color-gray-3); font-size: var(--sl-text-xs); width: max-content; }
+    .ob-ms-how p { margin: 0.5rem 0 0; max-width: 72ch; font-size: var(--sl-text-sm); color: var(--sl-color-gray-2); }
+
+    /* --- source chips --- */
+    .ob-sources-head { margin-bottom: 0.6rem; }
+    .ob-sources-h {
+      margin: 0;
+      font-size: var(--sl-text-xs);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--sl-color-gray-3);
+    }
+    .ob-sources-hint { margin: 0.15rem 0 0; font-size: var(--sl-text-sm); color: var(--sl-color-gray-3); }
+    .ob-chips-row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .ob-chip2 {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid var(--sl-color-hairline);
+      border-radius: 999px;
+      background-color: var(--sl-color-bg-nav);
+      overflow: hidden;
+    }
+    .ob-chip2.is-off { opacity: 0.55; }
+    .ob-chip2-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      font: inherit;
+      font-size: var(--sl-text-sm);
+      color: var(--sl-color-text);
+      background: transparent;
+      border: 0;
+      padding: 0.4rem 0.5rem 0.4rem 0.75rem;
+      cursor: pointer;
+    }
+    .ob-chip2:not(.is-off) { border-color: color-mix(in srgb, var(--sl-color-accent) 45%, var(--sl-color-hairline)); }
+    .ob-chip2-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+    .ob-chip2.is-off .ob-chip2-dot { filter: grayscale(1); }
+    .ob-chip2-n { color: var(--sl-color-gray-3); font-size: var(--sl-text-xs); }
+    .ob-chip2-remove {
+      font: inherit;
+      font-size: 1rem;
+      line-height: 1;
+      color: var(--sl-color-gray-3);
+      background: transparent;
+      border: 0;
+      border-left: 1px solid var(--sl-color-hairline);
+      padding: 0.4rem 0.6rem;
+      cursor: pointer;
+      align-self: stretch;
+    }
+    .ob-chip2-remove:hover { color: #b3261e; }
+
+    /* --- stat tiles --- */
+    .ob-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 0.75rem; }
+    .ob-tile {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+      padding: 0.85rem 0.95rem;
+      border: 1px solid var(--sl-color-hairline);
+      border-radius: 0.5rem;
+      background-color: var(--sl-color-bg-nav);
+    }
+    .ob-tile-label {
+      font-size: var(--sl-text-xs);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--sl-color-gray-3);
+      font-weight: 600;
+    }
+    .ob-tile-value {
+      font-size: 1.65rem;
+      font-weight: 600;
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+      color: var(--sl-color-white);
+      font-variant-numeric: tabular-nums;
+    }
+    .ob-tile-unit { font-size: 0.9rem; font-weight: 500; color: var(--sl-color-gray-3); margin-left: 3px; }
+    .ob-tile-chip { margin-top: 2px; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); color: var(--sl-color-gray-2); }
+
+    /* --- cards (shared) --- */
+    .ob-card {
+      border: 1px solid var(--sl-color-hairline);
+      border-radius: 0.6rem;
+      padding: 1.1rem 1.25rem;
+      background-color: var(--sl-color-bg-nav);
+    }
+    .ob-card-head { margin-bottom: 0.75rem; }
+    .ob-card-h { margin: 0; font-size: var(--sl-text-lg); font-weight: 600; letter-spacing: -0.01em; color: var(--sl-color-white); }
+    .ob-card-sub { margin: 0.25rem 0 0; font-size: var(--sl-text-sm); color: var(--sl-color-gray-3); max-width: 66ch; }
+    .ob-head-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+    .ob-chart { width: 100%; }
+    .ob-chart .ob-line, .ob-chart .ob-spark { display: block; max-width: 100%; height: auto; }
+
+    .ob-takeaway {
+      display: flex;
+      gap: 0.5rem;
+      align-items: baseline;
+      margin: 0.85rem 0 0;
+      font-size: var(--sl-text-base);
+      color: var(--sl-color-text);
+    }
+    .ob-takeaway b { font-weight: 600; }
+    .ob-take-ico { color: var(--sl-color-text-accent); font-weight: 700; flex: none; }
+    .ob-caveat {
+      display: flex;
+      gap: 0.45rem;
+      align-items: baseline;
+      margin: 0.6rem 0 0;
+      font-size: var(--sl-text-xs);
+      color: var(--sl-color-gray-3);
+      max-width: 76ch;
+    }
+    .ob-caveat-ico { color: var(--sl-color-gray-4); flex: none; }
+
+    /* SVG chart additions: phase bands, PR rings. */
+    .ob-line-band { fill: var(--sl-color-gray-4); opacity: 0.13; }
+    .ob-line-band-label {
+      fill: var(--sl-color-gray-3);
+      font-family: var(--sl-font-mono);
+      font-size: 10px;
+      text-transform: uppercase;
+      dominant-baseline: middle;
+    }
+    .ob-line-pr { fill: var(--sl-color-bg-nav); stroke: var(--sl-color-accent); stroke-width: 2; }
+
+    /* --- insight card (accent-tinted) --- */
+    .ob-insight { border-color: color-mix(in srgb, var(--sl-color-accent) 35%, var(--sl-color-hairline)); }
+    .ob-insight-take {
+      display: flex;
+      gap: 0.55rem;
+      align-items: baseline;
+      margin: 0 0 0.85rem;
+      font-size: var(--sl-text-lg);
+      color: var(--sl-color-text);
+    }
+    .ob-insight-take b { font-weight: 600; color: var(--sl-color-white); }
+    .ob-insight-ico { color: var(--sl-color-text-accent); flex: none; }
+
+    /* --- data tables inside cards --- */
+    .ob-dtable { width: 100%; border-collapse: collapse; font-size: var(--sl-text-sm); min-width: 460px; }
+    .ob-dtable th, .ob-dtable td { text-align: left; padding: 0.4rem 0.7rem; }
+    .ob-dtable thead th {
+      font-size: var(--sl-text-xs);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--sl-color-gray-3);
+      font-weight: 600;
+      border-bottom: 1px solid var(--sl-color-hairline);
+    }
+    .ob-dtable td.num, .ob-dtable th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .ob-dtable tbody tr + tr td, .ob-dtable tbody tr + tr th { border-top: 1px solid var(--sl-color-hairline); }
+    .ob-dtable .ob-spark { height: 30px; }
+    .ob-tag { font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
+    .ob-tag-new { color: var(--sl-color-text-accent); }
+    .ob-tag-forgot { color: #b3791a; }
+    :root[data-theme="dark"] .ob-tag-forgot, :root:not([data-theme="light"]) .ob-tag-forgot { color: #d69f4a; }
+
+    /* --- lift switcher --- */
+    .ob-lift-switch {
+      display: inline-flex;
+      gap: 2px;
+      padding: 3px;
+      border: 1px solid var(--sl-color-hairline);
+      border-radius: 0.5rem;
+      background-color: var(--sl-color-bg);
+    }
+    .ob-lift-switch button {
+      font: inherit;
+      font-size: var(--sl-text-xs);
+      color: var(--sl-color-gray-2);
+      background: transparent;
+      border: 0;
+      padding: 0.3rem 0.7rem;
+      border-radius: 0.35rem;
+      cursor: pointer;
+    }
+    .ob-lift-switch button[aria-selected="true"] {
+      background-color: var(--sl-color-bg-nav);
+      color: var(--sl-color-white);
+      font-weight: 600;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+    }
+
+    /* --- volume small-multiples --- */
+    .ob-volrows { display: flex; flex-direction: column; }
+    .ob-volrow {
+      display: grid;
+      grid-template-columns: 6rem 1fr auto;
+      align-items: center;
+      gap: 0.9rem;
+      padding: 0.5rem 0;
+    }
+    .ob-volrow + .ob-volrow { border-top: 1px solid var(--sl-color-hairline); }
+    .ob-vol-label { font-size: var(--sl-text-sm); font-weight: 500; }
+    .ob-vol-spark .ob-spark { height: 32px; }
+    .ob-vol-meta { font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); color: var(--sl-color-gray-2); text-align: right; white-space: nowrap; }
+    .ob-vol-flag { color: var(--sl-color-gray-3); }
+
+    .ob-conf { margin: 0.6rem 0 0; font-size: var(--sl-text-sm); color: var(--sl-color-gray-2); }
+    .ob-conf-chip {
+      display: inline-block;
+      font-family: var(--sl-font-mono);
+      font-size: var(--sl-text-xs);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 0.1rem 0.45rem;
+      border-radius: 0.3rem;
+      border: 1px solid var(--sl-color-gray-5);
+      color: var(--sl-color-gray-3);
+    }
+    .ob-disc-list { margin: 0.75rem 0 0; padding-left: 1.2rem; font-size: var(--sl-text-sm); color: var(--sl-color-gray-2); }
+    .ob-disc-list li { margin: 0.15rem 0; }
+    .ob-disc-list b { color: var(--sl-color-text); }
+
+    /* --- collapsed details & raw --- */
+    .ob-details { border: 1px solid var(--sl-color-hairline); border-radius: 0.6rem; background-color: var(--sl-color-bg-nav); }
+    .ob-details > summary { cursor: pointer; font-weight: 600; color: var(--sl-color-gray-2); padding: 0.85rem 1.1rem; }
+    .ob-details-body { display: flex; flex-direction: column; gap: 0.75rem; padding: 0 1.1rem 1.1rem; }
+    .ob-details-h {
+      margin: 0.5rem 0 0;
+      font-size: var(--sl-text-sm);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--sl-color-gray-3);
+      border-bottom: 1px solid var(--sl-color-hairline);
+      padding-bottom: 0.35rem;
+    }
+
+    /* --- three-tier import notes --- */
+    .ob-notes { display: flex; flex-direction: column; gap: 0.6rem; }
+    .ob-notes-h { margin: 0 0 0.15rem; font-size: var(--sl-text-lg); font-weight: 600; color: var(--sl-color-white); }
+    .ob-note {
+      display: flex;
+      gap: 0.7rem;
+      align-items: flex-start;
+      padding: 0.65rem 0.8rem;
+      border-radius: 0.45rem;
+      font-size: var(--sl-text-sm);
+      line-height: 1.5;
+    }
+    .ob-note-ico { flex: none; font-weight: 700; }
+    .ob-note-body { color: var(--sl-color-gray-2); }
+    .ob-note-body b { color: var(--sl-color-text); }
+    .ob-note-good { background-color: color-mix(in srgb, #2e955f 12%, transparent); }
+    .ob-note-good .ob-note-ico { color: #2e955f; }
+    .ob-note-info { background-color: color-mix(in srgb, var(--sl-color-gray-4) 12%, transparent); }
+    .ob-note-info .ob-note-ico { color: var(--sl-color-gray-3); }
+    .ob-note-warn { background-color: color-mix(in srgb, #b3791a 15%, transparent); }
+    .ob-note-warn .ob-note-ico { color: #b3791a; }
+    :root:not([data-theme="light"]) .ob-note-good .ob-note-ico { color: #4fbb84; }
+    :root:not([data-theme="light"]) .ob-note-warn .ob-note-ico { color: #d69f4a; }
+
+    /* --- export bar --- */
+    .ob-export {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 1.25rem;
+      align-items: center;
+      padding: 1.25rem;
+      border: 1px solid var(--sl-color-hairline);
+      border-radius: 0.6rem;
+      background-color: var(--sl-color-bg-nav);
+    }
+    .ob-export-h { margin: 0; font-size: var(--sl-text-lg); font-weight: 600; color: var(--sl-color-white); }
+    .ob-export-copy p { margin: 0.5rem 0 0; font-size: var(--sl-text-sm); color: var(--sl-color-gray-2); max-width: 58ch; }
+    .ob-export-copy .ob-export-advocacy { color: var(--sl-color-gray-3); font-size: var(--sl-text-xs); margin-top: 0.5rem; }
+    .ob-export-actions { display: flex; flex-direction: column; gap: 0.5rem; align-items: stretch; min-width: 15rem; }
+    .ob-export-actions .ob-btn { width: 100%; text-align: center; }
+    .ob-export-note { font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); color: var(--sl-color-gray-3); text-align: center; }
+
+    .ob-cockpit-empty { margin: 0; font-size: var(--sl-text-base); color: var(--sl-color-gray-2); }
+
+    @media (max-width: 40rem) {
+      .ob-export { grid-template-columns: 1fr; }
+      .ob-export-actions { min-width: 0; }
+      .ob-volrow { grid-template-columns: 5rem 1fr; grid-template-rows: auto auto; }
+      .ob-vol-meta { grid-column: 2; text-align: left; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .ob-cov-seg { transition: none; }
     }
   </style>
 </StarlightPage>
