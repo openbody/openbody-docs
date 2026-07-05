@@ -150,7 +150,7 @@ const numOf = (s: string | undefined): number | undefined => {
  * (with empty streams — the CSV has no samples). Summary fields only: sport, start time,
  * elapsed/moving time, distance, name.
  */
-export function mapStravaActivitiesCsv(csv: string): LiveRecord[] {
+export function mapStravaActivitiesCsv(csv: string, subject?: string): LiveRecord[] {
   const rows = parseCsvRaw(csv.replace(/^\uFEFF/, ""));
   const header = (rows.shift() ?? []).map((h) => h.trim());
   const allIdx = (name: string) =>
@@ -186,7 +186,10 @@ export function mapStravaActivitiesCsv(csv: string): LiveRecord[] {
       moving_time: moving ?? elapsed,
       distance: distance ?? 0,
     };
-    const mapped = mapStrava({ activity, streams: { time: { data: [] } } }).records;
+    const mapped = mapStrava(
+      { activity, streams: { time: { data: [] } } },
+      { subject },
+    ).records;
     const name = cell(row, "Activity Name");
     for (const rec of mapped) {
       if (rec.recordType !== "Session") continue;

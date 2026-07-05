@@ -117,7 +117,24 @@ import { Aside } from "@astrojs/starlight/components";
       <span class="ob-dropzone-sub">Nothing is uploaded — parsing happens in your browser.</span>
     </label>
 
+    <div class="ob-option-row">
+      <label for="subject-input">Subject ID (optional)</label>
+      <input
+        id="subject-input"
+        type="text"
+        placeholder="e.g. me, athlete-42"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <span class="ob-option-hint">
+        The id every record is tagged with. Leave blank and a placeholder
+        (<code>subj-001</code>) is used instead.
+      </span>
+    </div>
+
     <p id="status" class="ob-status-msg" role="status" aria-live="polite" hidden></p>
+
+    <p id="subject-note" class="ob-note" role="note" hidden></p>
 
     <div id="summary" class="ob-summary" hidden></div>
 
@@ -179,6 +196,8 @@ import { Aside } from "@astrojs/starlight/components";
       mapAppleHealth,
       mapOpenBodyToStrong,
       MapperInputError,
+      DEFAULT_SUBJECT,
+      type MapOptions,
       type ToStrongResult,
       type MapWarning,
     } from "@openbody/openbody-ts";
@@ -201,8 +220,10 @@ import { Aside } from "@astrojs/starlight/components";
     } from "../../components/convert-sources";
 
     const fileInput = document.getElementById("file-input") as HTMLInputElement;
+    const subjectInput = document.getElementById("subject-input") as HTMLInputElement;
     const dropZone = document.getElementById("drop-zone") as HTMLElement;
     const statusEl = document.getElementById("status") as HTMLElement;
+    const subjectNoteEl = document.getElementById("subject-note") as HTMLElement;
     const summaryEl = document.getElementById("summary") as HTMLElement;
     const resolutionEl = document.getElementById("resolution") as HTMLElement;
     const previewEl = document.getElementById("preview") as HTMLElement;
@@ -226,6 +247,8 @@ import { Aside } from "@astrojs/starlight/components";
     }
 
     function resetPreview() {
+      subjectNoteEl.hidden = true;
+      subjectNoteEl.replaceChildren();
       previewEl.hidden = true;
       previewEl.replaceChildren();
       resolutionEl.hidden = true;
@@ -739,16 +762,20 @@ import { Aside } from "@astrojs/starlight/components";
       "Supported: Hevy workout CSV, Hevy measurement_data.csv, Strong CSV, " +
       "Apple Health export.xml, Strava activities.csv.";
 
-    function mapForSource(source: SourceId, text: string): { records: any[]; warnings: MapWarning[] } {
+    function mapForSource(
+      source: SourceId,
+      text: string,
+      opts: MapOptions,
+    ): { records: any[]; warnings: MapWarning[] } {
       switch (source) {
-        case "hevy": return mapHevy(text);
+        case "hevy": return mapHevy(text, opts);
         // Hevy's body-measurement export → point-in-time Measurement records (no sessions).
-        case "hevy-measurements": return mapHevyMeasurements(text);
-        case "strong": return mapStrong(text);
-        case "apple-health": return mapAppleHealth(text);
+        case "hevy-measurements": return mapHevyMeasurements(text, opts);
+        case "strong": return mapStrong(text, opts);
+        case "apple-health": return mapAppleHealth(text, opts);
         // mapStravaActivitiesCsv is a docs-only adapter (fans out per-row mapStrava calls),
         // not one of the package's mappers — it already returns a plain record array.
-        case "strava": return { records: mapStravaActivitiesCsv(text), warnings: [] };
+        case "strava": return { records: mapStravaActivitiesCsv(text, opts.subject), warnings: [] };
       }
     }
 
@@ -778,7 +805,10 @@ import { Aside } from "@astrojs/starlight/components";
         setStatus(`Detected ${SOURCE_LABEL[source]} — parsing…`, "info");
 
         const kind = SOURCE_KIND[source];
-        const { records, warnings } = mapForSource(source, text);
+        // A blank subject field means "let the mapper stamp its placeholder"; a filled-in
+        // one is threaded through as MapOptions.subject so no placeholder is fabricated.
+        const subject = subjectInput?.value.trim() || undefined;
+        const { records, warnings } = mapForSource(source, text, { subject });
         const sessionCount = records.filter((r: any) => r.recordType === "Session").length;
         if (!records.length || (kind === "strength" && sessionCount === 0)) {
           setStatus(
@@ -820,17 +850,37 @@ import { Aside } from "@astrojs/starlight/components";
           parsedBits.push(`${sessionCount} session${sessionCount === 1 ? "" : "s"}`);
         }
         if (measurementCount > 0) {
-          parsedBits.push(`${measurementCount} measurement${measurementCount === 1 ? "" : "s"}`);
+          // "measurement records", not "measurements": a Hevy measurement_data.csv row can
+          // yield several records (one per non-empty metric cell), so the record count is
+          // usually higher than the number of logged dates. The date span lives in the
+          // summary card above.
+          parsedBits.push(
+            `${measurementCount} measurement record${measurementCount === 1 ? "" : "s"}`,
+          );
         }
         if (parsedBits.length === 0) parsedBits.push("0 records");
-        const warningsNote = warnings.length
-          ? ` ${warnings.length} warning${warnings.length === 1 ? "" : "s"}: ${warnings.map((w) => w.message).join("; ")}`
+
+        // The "no subject id given → placeholder used" warning is working-as-intended, not a
+        // problem — split it out (by its stable `code`, not by message text) and show it as a
+        // neutral info note. Every other warning is a genuine one and still surfaces in the
+        // success status line.
+        const usedDefaultSubject = warnings.some((w) => w.code === "default-subject");
+        const realWarnings = warnings.filter((w) => w.code !== "default-subject");
+        const warningsNote = realWarnings.length
+          ? ` ${realWarnings.length} warning${realWarnings.length === 1 ? "" : "s"}: ` +
+            `${realWarnings.map((w) => w.message).join("; ")}`
           : "";
         setStatus(
           `${SOURCE_LABEL[source]}: parsed ${parsedBits.join(" and ")} from ${file.name}. ` +
             `Nothing left your browser.${warningsNote}`,
           "success",
         );
+        if (usedDefaultSubject) {
+          subjectNoteEl.textContent =
+            `Note: no subject ID given, so records use a placeholder id “${DEFAULT_SUBJECT}”. ` +
+            `Add one in the field above to use your own.`;
+          subjectNoteEl.hidden = false;
+        }
         downloadBtn.hidden = false;
         emailCapture.hidden = false;
       } catch (err) {
@@ -1007,6 +1057,55 @@ import { Aside } from "@astrojs/starlight/components";
     .ob-dropzone-sub {
       font-size: var(--sl-text-sm);
       color: var(--sl-color-gray-3);
+    }
+
+    /* Optional subject-id control — matches the email-capture input styling. */
+    .ob-option-row {
+      display: grid;
+      grid-template-columns: auto minmax(12rem, 22rem);
+      grid-template-areas: "label input" "hint hint";
+      gap: 0.35rem 0.75rem;
+      align-items: center;
+    }
+    .ob-option-row label {
+      grid-area: label;
+      font-weight: 600;
+      font-size: var(--sl-text-sm);
+    }
+    .ob-option-row input[type="text"] {
+      grid-area: input;
+      font: inherit;
+      padding: 0.5rem 0.7rem;
+      border-radius: 0.4rem;
+      border: 1px solid var(--sl-color-gray-5);
+      background-color: var(--sl-color-bg);
+      color: var(--sl-color-text);
+    }
+    .ob-option-hint {
+      grid-area: hint;
+      font-size: var(--sl-text-sm);
+      color: var(--sl-color-gray-3);
+    }
+    @media (max-width: 34rem) {
+      .ob-option-row {
+        grid-template-columns: 1fr;
+        grid-template-areas: "label" "input" "hint";
+        align-items: start;
+      }
+    }
+
+    /* Neutral, informational note — deliberately NOT the warning/error style. Used for
+       working-as-intended notices such as the placeholder-subject fallback. */
+    .ob-note {
+      font-size: var(--sl-text-sm);
+      color: var(--sl-color-gray-2);
+      padding: 0.6rem 0.9rem;
+      border-radius: 0.35rem;
+      border: 1px solid var(--sl-color-hairline);
+      background-color: var(--sl-color-bg-nav);
+    }
+    .ob-note code {
+      font-size: 0.95em;
     }
 
     .ob-status-msg {
