@@ -46,73 +46,11 @@ import { Aside } from "@astrojs/starlight/components";
     see the <a href="/mapping/">mapping guides</a> for the mappings that exist in the
     reference implementation.
   </Aside>
-
-  <h2>Supported exports</h2>
-  <div class="ob-source-grid">
-    <div class="ob-source-card">
-      <p class="ob-source-name">Hevy — workout CSV</p>
-      <p class="ob-source-how">Hevy app → Profile → Settings → Export Data.</p>
-      <p class="ob-source-what">
-        Full lifting history: workouts, exercises, sets, reps, load, RPE, supersets.
-        Exercise names are matched to canonical OpenBody movements where known.
-      </p>
-    </div>
-    <div class="ob-source-card">
-      <p class="ob-source-name">Hevy — body-measurement CSV</p>
-      <p class="ob-source-how">Hevy app → Profile → Settings → Export Data (the
-        <code>measurement_data.csv</code> alongside the workout export).</p>
-      <p class="ob-source-what">
-        Body metrics logged over time: weight and body-fat become canonical OpenBody
-        measurements, and body circumferences (neck, chest, biceps, waist, …) map to the
-        canonical anthropometry types — with the tape-measure unit (inches or centimetres)
-        preserved from your Hevy setting.
-      </p>
-    </div>
-    <div class="ob-source-card">
-      <p class="ob-source-name">Strong — workout CSV</p>
-      <p class="ob-source-how">Strong app → Profile → Settings → Export Strong Data.</p>
-      <p class="ob-source-what">
-        Workouts, exercises, sets, weight, reps, plus distance/time sets. Same canonical
-        exercise matching as Hevy.
-      </p>
-    </div>
-    <div class="ob-source-card">
-      <p class="ob-source-name">Apple Health — export.xml</p>
-      <p class="ob-source-how">
-        Health app → profile picture → Export All Health Data, then <strong>unzip</strong>
-        the export.zip and pick <code>export.xml</code>.
-      </p>
-      <p class="ob-source-what">
-        Workouts become sessions (duration, distance, energy); heart rate, step count, body
-        mass, and sleep-stage records become measurements. Per-workout GPS routes and other
-        record types aren't read yet. Big exports can take a moment — it all runs locally.
-      </p>
-    </div>
-    <div class="ob-source-card">
-      <p class="ob-source-name">Strava — activities.csv</p>
-      <p class="ob-source-how">
-        strava.com → Settings → My Account → Download or Delete Your Account → Download
-        Request, then pick <code>activities.csv</code> from the archive.
-      </p>
-      <p class="ob-source-what">
-        Summary per activity only: sport, date, moving/elapsed time, distance. The GPS,
-        heart-rate, and power streams (the GPX/FIT files in the same archive) are coming
-        later.
-      </p>
-    </div>
   </div>
 
-  <h2>How it works</h2>
-  <ol>
-    <li>Export your data from one of the apps above.</li>
-    <li>Drop the file below — the format is detected automatically. Parsing happens entirely
-      in your browser via JavaScript — the file is never sent anywhere.</li>
-    <li>Review the summary and human-readable preview, then download the portable OpenBody
-      JSON — and, for lifting exports, a Strong-format CSV that both Strong and Hevy can
-      import.</li>
-  </ol>
-  </div>
-
+  {/* Primary action up top: the converter is the CTA, so it sits directly beneath the
+      intro — above the "Supported exports" / "How it works" detail, which follows for
+      anyone who wants it. */}
   <div id="convert-tool" class="ob-tool">
     <label id="drop-zone" for="file-input" class="ob-dropzone">
       <input
@@ -187,6 +125,73 @@ import { Aside } from "@astrojs/starlight/components";
         <p id="email-status" class="ob-email-status" role="status" aria-live="polite"></p>
       </form>
     </div>
+  </div>
+
+  <div class="ob-marketing">
+  <h2>Supported exports</h2>
+  <div class="ob-source-grid">
+    <div class="ob-source-card">
+      <p class="ob-source-name">Hevy — workout CSV</p>
+      <p class="ob-source-how">Hevy app → Profile → Settings → Export Data.</p>
+      <p class="ob-source-what">
+        Full lifting history: workouts, exercises, sets, reps, load, RPE, supersets.
+        Exercise names are matched to canonical OpenBody movements where known.
+      </p>
+    </div>
+    <div class="ob-source-card">
+      <p class="ob-source-name">Hevy — body-measurement CSV</p>
+      <p class="ob-source-how">Hevy app → Profile → Settings → Export Data (the
+        <code>measurement_data.csv</code> alongside the workout export).</p>
+      <p class="ob-source-what">
+        Body metrics logged over time: weight and body-fat become canonical OpenBody
+        measurements, and body circumferences (neck, chest, biceps, waist, …) map to the
+        canonical anthropometry types — with the tape-measure unit (inches or centimetres)
+        preserved from your Hevy setting.
+      </p>
+    </div>
+    <div class="ob-source-card">
+      <p class="ob-source-name">Strong — workout CSV</p>
+      <p class="ob-source-how">Strong app → Profile → Settings → Export Strong Data.</p>
+      <p class="ob-source-what">
+        Workouts, exercises, sets, weight, reps, plus distance/time sets. Same canonical
+        exercise matching as Hevy.
+      </p>
+    </div>
+    <div class="ob-source-card">
+      <p class="ob-source-name">Apple Health — export.xml</p>
+      <p class="ob-source-how">
+        Health app → profile picture → Export All Health Data, then <strong>unzip</strong>
+        the export.zip and pick <code>export.xml</code>.
+      </p>
+      <p class="ob-source-what">
+        Workouts become sessions (duration, distance, energy); heart rate, step count, body
+        mass, and sleep-stage records become measurements. Per-workout GPS routes and other
+        record types aren't read yet. Big exports can take a moment — it all runs locally.
+      </p>
+    </div>
+    <div class="ob-source-card">
+      <p class="ob-source-name">Strava — activities.csv</p>
+      <p class="ob-source-how">
+        strava.com → Settings → My Account → Download or Delete Your Account → Download
+        Request, then pick <code>activities.csv</code> from the archive.
+      </p>
+      <p class="ob-source-what">
+        Summary per activity only: sport, date, moving/elapsed time, distance. The GPS,
+        heart-rate, and power streams (the GPX/FIT files in the same archive) are coming
+        later.
+      </p>
+    </div>
+  </div>
+
+  <h2>How it works</h2>
+  <ol>
+    <li>Export your data from one of the apps above.</li>
+    <li>Drop the file below — the format is detected automatically. Parsing happens entirely
+      in your browser via JavaScript — the file is never sent anywhere.</li>
+    <li>Review the summary and human-readable preview, then download the portable OpenBody
+      JSON — and, for lifting exports, a Strong-format CSV that both Strong and Hevy can
+      import.</li>
+  </ol>
   </div>
 
   <div class="ob-marketing">
