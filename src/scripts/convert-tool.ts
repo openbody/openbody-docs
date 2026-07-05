@@ -15,19 +15,13 @@
     import { mergeLayers, toPlainNumbers, type MergeStats } from "../components/merge";
     import { summarizeSessions, formatSetLine, type SessionSummary } from "../lib/hevy/summarize";
     import {
-      summarizeMeasurements,
-      type MeasurementsSummary,
-    } from "../lib/hevy/summarize-measurements";
-    import {
       detectSource,
       mapStravaActivitiesCsv,
       summarizeEndurance,
-      summarizeUnified,
       formatHoursMinutes,
       SOURCE_LABEL,
       SOURCE_KIND,
       type SourceId,
-      type UnifiedSummary,
       type WeeklyPoint,
     } from "../components/convert-sources";
     import {
@@ -106,6 +100,14 @@
     let lastStrong: ToStrongResult | null = null;
     let lastBaseName = "openbody-export";
 
+    // Sticky quick-download bar (OB-92): a slim floating CTA that appears once the export
+    // hero scrolls out of view, so the download stays reachable while scrolling the data.
+    // Lives on <body> (fixed positioning, viewport-relative regardless of ancestors) and is
+    // torn down on every re-render / "Start over" so it never leaks or lingers in the empty
+    // state.
+    let stickyDl: HTMLElement | null = null;
+    let heroObserver: IntersectionObserver | null = null;
+
     // Apple Health mints constant/positional ids (apple-workout-6, apple-q-3) that collide
     // across different export files; namespacing per layer keeps two files distinct. The
     // content-stable CSV/JSON sources keep their ids so re-import → same id → exact collapse.
@@ -120,17 +122,6 @@
     /** A merged Session with sets/exercises is "strength"; without, it's "endurance". */
     function hasSets(rec: any): boolean {
       return (rec.exercises?.length ?? 0) > 0 || (rec.blocks?.length ?? 0) > 0;
-    }
-
-    // --- unified post-conversion summary (all sources) ---------------------------------
-    // One modest summary card above the downloads: sessions + date range, discipline chips,
-    // top movements by set count (canonical registry ids where §6 resolution matched), and
-    // a weekly-activity sparkline. Deliberately a summary card, not a dashboard: no
-    // filters, no tabs — the point is "that's my training history, unified".
-
-    function rangeLabel(iso: string): string {
-      const d = new Date(iso);
-      return isNaN(d.getTime()) ? iso : d.toLocaleDateString(undefined, { dateStyle: "medium" });
     }
 
     const SPARK_METRIC_LABEL = {
@@ -374,122 +365,6 @@
       return svg;
     }
 
-
-    const TOP_MOVEMENTS_SHOWN = 5;
-
-    function renderSummary(
-      summary: UnifiedSummary,
-      kind: "strength" | "endurance",
-      host: HTMLElement,
-    ) {
-      const summaryEl = host; // write into the panel's own sub-section (Phase B multi-panel)
-      summaryEl.replaceChildren();
-
-      // Headline: sessions + date range.
-      const title = document.createElement("p");
-      title.className = "ob-summary-title";
-      let head = `${summary.sessionCount} session${summary.sessionCount === 1 ? "" : "s"}`;
-      if (summary.rangeStart && summary.rangeEnd) {
-        const from = rangeLabel(summary.rangeStart);
-        const to = rangeLabel(summary.rangeEnd);
-        head += from === to ? ` · ${from}` : ` · ${from} – ${to}`;
-      }
-      title.textContent = head;
-      summaryEl.append(title);
-
-      // Discipline chips.
-      if (summary.disciplines.length > 0) {
-        const chips = document.createElement("div");
-        chips.className = "ob-chips";
-        for (const [d, n] of summary.disciplines) {
-          const chip = document.createElement("span");
-          chip.className = "ob-chip";
-          chip.textContent = summary.disciplines.length === 1 && n === summary.sessionCount
-            ? d
-            : `${d} ×${n}`;
-          chips.append(chip);
-        }
-        summaryEl.append(chips);
-      }
-
-      // One line of totals, per kind.
-      const facts = document.createElement("p");
-      facts.className = "ob-summary-facts";
-      const bits: string[] = [];
-      if (kind === "strength") {
-        bits.push(`${summary.totalSets} set${summary.totalSets === 1 ? "" : "s"} logged`);
-        if (summary.topMovements.length > 0) {
-          bits.push(`${summary.topMovements.length} distinct movement${summary.topMovements.length === 1 ? "" : "s"}`);
-        }
-      } else {
-        if (summary.totalKm > 0) bits.push(`${summary.totalKm.toFixed(1)} km`);
-        if (summary.totalSeconds > 0) bits.push(formatHoursMinutes(summary.totalSeconds));
-        if (summary.measurementCount > 0) {
-          bits.push(
-            `${summary.measurementCount} measurement${summary.measurementCount === 1 ? "" : "s"} ` +
-              `(${summary.measurementsByType.map(([t, n]) => `${t} ×${n}`).join(", ")})`,
-          );
-        }
-      }
-      if (bits.length > 0) {
-        facts.textContent = bits.join(" · ");
-        summaryEl.append(facts);
-      }
-
-      // Top movements by set count — canonical ids where the registry resolved the name
-      // (that's the registry visibly doing work), the app's own name otherwise.
-      if (kind === "strength" && summary.topMovements.length > 0) {
-        const subhead = document.createElement("p");
-        subhead.className = "ob-summary-subhead";
-        subhead.textContent = "Top movements";
-        const list = document.createElement("ol");
-        list.className = "ob-movements";
-        for (const mv of summary.topMovements.slice(0, TOP_MOVEMENTS_SHOWN)) {
-          const li = document.createElement("li");
-          if (mv.id !== undefined) {
-            const code = document.createElement("code");
-            code.textContent = mv.id;
-            li.append(code);
-          } else {
-            const span = document.createElement("span");
-            span.className = "ob-movement-opaque";
-            span.textContent = mv.label;
-            li.append(span);
-          }
-          li.append(` — ${mv.setCount} set${mv.setCount === 1 ? "" : "s"}`);
-          list.append(li);
-        }
-        summaryEl.append(subhead, list);
-      }
-
-      // Weekly activity sparkline. Rendered after the card is visible so it can be sized
-      // from the real container width.
-      const { points, bucket, metric } = summary.weekly;
-      summaryEl.hidden = false;
-      if (points.length > 0 && points.some((p) => p.value > 0)) {
-        const caption = document.createElement("p");
-        caption.className = "ob-summary-subhead";
-        caption.textContent = `${SPARK_METRIC_LABEL[metric]} per ${bucket}`;
-        const wrap = document.createElement("div");
-        wrap.className = "ob-spark-wrap";
-        summaryEl.append(caption, wrap);
-        const width = Math.max(160, Math.min(wrap.clientWidth || 600, 720));
-        wrap.append(buildSparkline(points, bucket, metric, width));
-        if (points.length > 1) {
-          const labels = document.createElement("div");
-          labels.className = "ob-spark-labels";
-          for (const iso of [points[0].bucketStart, points[points.length - 1].bucketStart]) {
-            const span = document.createElement("span");
-            span.textContent = new Date(`${iso}T00:00:00Z`).toLocaleDateString(undefined, {
-              month: "short", year: "numeric", timeZone: "UTC",
-            });
-            labels.append(span);
-          }
-          wrap.append(labels);
-        }
-      }
-    }
-
     // --- "Download as Strong CSV" (strength sources) ------------------------------------
     // The app-switch story: Strong-format CSV is also what Hevy accepts as its import
     // format, so this one file is the practical "move your history into Strong or Hevy"
@@ -547,64 +422,6 @@
         strongInfoEl.append(details);
       }
       strongInfoEl.hidden = false;
-    }
-
-    // Exercise-identity resolution summary (SPEC §6): the mappers now climb the matching
-    // ladder via the canonical registry crosswalk, so each Exercise's `exerciseRef` carries
-    // a canonical `id` when the app's exercise name is a known movement, and always keeps
-    // the original name losslessly (`opaque`). This runs on the already-mapped records —
-    // still 100% client-side, nothing leaves the browser.
-    function renderResolution(records: any[], host: HTMLElement) {
-      const resolutionEl = host;
-      const refs: { name: string; id?: string }[] = [];
-      const seen = new Set<string>();
-      for (const session of records) {
-        const exercises = [
-          ...(session.exercises ?? []),
-          ...((session.blocks ?? []).flatMap((b: any) => b.children ?? [])),
-        ];
-        for (const ex of exercises) {
-          const er = ex?.exerciseRef;
-          if (er === undefined) continue;
-          const id = typeof er === "string" ? er : er.id;
-          const name = (typeof er === "string" ? undefined : er.opaque) ?? id ?? "(unnamed)";
-          if (seen.has(name)) continue;
-          seen.add(name);
-          refs.push({ name, id });
-        }
-      }
-      if (refs.length === 0) return;
-
-      const resolved = refs.filter((r) => r.id !== undefined).length;
-      const title = document.createElement("p");
-      title.className = "ob-resolution-title";
-      title.textContent =
-        `${resolved} of ${refs.length} exercises recognized as canonical OpenBody movements` +
-        ` — the rest are kept as-is (lossless).`;
-
-      const list = document.createElement("ul");
-      list.className = "ob-resolution-list";
-      for (const r of refs) {
-        const li = document.createElement("li");
-        const nameEl = document.createElement("span");
-        nameEl.className = "ob-resolution-name";
-        nameEl.textContent = r.name;
-        li.append(nameEl);
-        if (r.id !== undefined) {
-          li.append(" → ");
-          const idEl = document.createElement("code");
-          idEl.textContent = r.id;
-          li.append(idEl);
-        } else {
-          const keptEl = document.createElement("span");
-          keptEl.className = "ob-resolution-kept";
-          keptEl.textContent = " — kept as-is (lossless)";
-          li.append(keptEl);
-        }
-        list.append(li);
-      }
-      resolutionEl.replaceChildren(title, list);
-      resolutionEl.hidden = false;
     }
 
     // Once a history has more than a handful of sessions, the full per-session breakdown is
@@ -718,51 +535,6 @@
         const stack = previewEl.querySelector(".ob-breakdown .ob-preview-stack") ?? previewEl;
         stack.append(more);
       }
-    }
-
-    // Measurement sources (Hevy's measurement_data.csv) have no sessions, exercises, or
-    // disciplines — the summary card and preview are body metrics only. Still 100%
-    // client-side. The summary states the count + type coverage; every Hevy metric now maps
-    // to a canonical registry type, so the namespaced-fallback caveat below is retained only
-    // as a safety net for any future registry-gap token (typically it stays empty).
-    function renderMeasurementsSummary(summary: MeasurementsSummary, host: HTMLElement) {
-      const summaryEl = host;
-      summaryEl.replaceChildren();
-
-      const title = document.createElement("p");
-      title.className = "ob-summary-title";
-      let head =
-        `${summary.count} measurement${summary.count === 1 ? "" : "s"} · ` +
-        `${summary.typeCount} type${summary.typeCount === 1 ? "" : "s"}`;
-      if (summary.rangeStart && summary.rangeEnd) {
-        const from = rangeLabel(summary.rangeStart);
-        const to = rangeLabel(summary.rangeEnd);
-        head += from === to ? ` · ${from}` : ` · ${from} – ${to}`;
-      }
-      title.textContent = head;
-      summaryEl.append(title);
-
-      const facts = document.createElement("p");
-      facts.className = "ob-summary-facts";
-      facts.textContent =
-        "Weight and body-fat map to canonical OpenBody types (body_mass, body_fat_percentage); " +
-        "body circumferences map to the side-agnostic anthropometry types (e.g. neck_circumference, " +
-        "bicep_circumference) with the side on the laterality field (left/right) and the " +
-        "tape-measure unit (in or cm) preserved. Each is a point-in-time Measurement record.";
-      summaryEl.append(facts);
-
-      if (summary.namespacedLabels.length > 0) {
-        const note = document.createElement("p");
-        note.className = "ob-strong-note";
-        note.textContent =
-          `${summary.namespacedLabels.length} type` +
-          `${summary.namespacedLabels.length === 1 ? "" : "s"} (` +
-          `${summary.namespacedLabels.join(", ")}) have no canonical registry type yet, so ` +
-          `they're kept under a namespaced token. That's lossless and still schema-valid — it ` +
-          `just flags where the registry's vocabulary hasn't caught up.`;
-        summaryEl.append(note);
-      }
-      summaryEl.hidden = false;
     }
 
     // Just the per-day measurements TABLE (no chart) — the bodyweight chart is the cockpit
@@ -1121,6 +893,9 @@
     }
 
     function renderResult() {
+      // Tear down any prior sticky bar first — rebuilt below only when a result is showing,
+      // so it's absent in the upload/empty state and after "Start over".
+      teardownSticky();
       // Reset the legacy fixed regions (unused by the lean view) and the single render canvas.
       for (const region of [summaryEl, resolutionEl, strongInfoEl]) {
         region.replaceChildren();
@@ -1267,6 +1042,48 @@
       }
 
       previewEl.append(section);
+      buildStickyDownload(section, merged.length);
+    }
+
+    // --- sticky quick-download bar -------------------------------------------------------
+    // Reuses the hero download path exactly (clicks the real hero button — no blob/download
+    // logic duplicated). Shown only once the hero scrolls out of view, via an
+    // IntersectionObserver; hidden state is non-focusable (visibility:hidden) so keyboard
+    // users never tab into an invisible control.
+    function teardownSticky() {
+      heroObserver?.disconnect();
+      heroObserver = null;
+      stickyDl?.remove();
+      stickyDl = null;
+    }
+
+    function buildStickyDownload(heroSection: HTMLElement, recordCount: number) {
+      const bar = el("div", "ob-sticky-dl");
+      bar.setAttribute("role", "region");
+      bar.setAttribute("aria-label", "Quick download");
+
+      const label = el("span", "ob-sticky-dl-label");
+      label.append(
+        el("b", undefined, nf0.format(recordCount)),
+        document.createTextNode(` record${recordCount === 1 ? "" : "s"} ready`),
+      );
+
+      const btn = el("button", "ob-btn ob-btn-primary ob-sticky-dl-btn", "Download openbody.json");
+      btn.type = "button";
+      // Delegate to the real hero button so the blob/anchor/download code has one home.
+      btn.addEventListener("click", () => downloadBtn.click());
+
+      bar.append(label, btn);
+      document.body.append(bar);
+      stickyDl = bar;
+
+      // Pin the bar only when the export hero is no longer visible. The negative top margin
+      // keeps it from appearing while the hero is still peeking out beneath the site header.
+      heroObserver = new IntersectionObserver(
+        ([entry]) => bar.classList.toggle("is-pinned", !entry.isIntersecting),
+        { rootMargin: "-64px 0px 0px 0px", threshold: 0 },
+      );
+      heroObserver.observe(heroSection);
     }
 
     // --- highlighted number helper (shared by the aha sentence) --------------------------
