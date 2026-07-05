@@ -218,6 +218,12 @@ import { Aside } from "@astrojs/starlight/components";
       type UnifiedSummary,
       type WeeklyPoint,
     } from "../../components/convert-sources";
+    import {
+      bodyweightTrend,
+      measurementTable,
+      type BodyweightTrend,
+      type MeasurementTable,
+    } from "../../components/insights";
 
     const fileInput = document.getElementById("file-input") as HTMLInputElement;
     const subjectInput = document.getElementById("subject-input") as HTMLInputElement;
@@ -341,6 +347,149 @@ import { Aside } from "@astrojs/starlight/components";
       baseline.setAttribute("y2", String(baseY + 0.5));
       svg.append(baseline);
       return svg;
+    }
+
+    // Reusable two-series line chart (sibling to buildSparkline): faint raw daily points +
+    // one bold trend line, over a real time axis. Same conventions — inline SVG, zero deps,
+    // sized in real pixels from the container, theme via --sl-color-* tokens (CSS classes),
+    // role="img" + aria-label, native <title> tooltips. Kept generic (any {t, raw, trend}[])
+    // so later phases can chart other metrics; Phase A feeds it the bodyweight EWMA trend.
+    function buildLineChart(
+      points: { t: number; raw: number; trend: number }[],
+      opts: { unit: string; label: string; containerWidth: number },
+    ): SVGSVGElement {
+      const NS = "http://www.w3.org/2000/svg";
+      const W = Math.max(280, opts.containerWidth);
+      const H = 190;
+      const padL = 46, padR = 52, padT = 12, padB = 22;
+      const plotW = W - padL - padR;
+      const plotH = H - padT - padB;
+      const unit = opts.unit ? ` ${opts.unit}` : "";
+
+      const ts = points.map((p) => p.t);
+      const t0 = Math.min(...ts), t1 = Math.max(...ts);
+      const vals = points.flatMap((p) => [p.raw, p.trend]);
+      let vMin = Math.min(...vals), vMax = Math.max(...vals);
+      const pad = (vMax - vMin || 1) * 0.06;
+      vMin -= pad; vMax += pad;
+
+      const xOf = (t: number) => padL + (t1 === t0 ? plotW / 2 : ((t - t0) / (t1 - t0)) * plotW);
+      const yOf = (v: number) => padT + (1 - (v - vMin) / (vMax - vMin || 1)) * plotH;
+      const fmt = (v: number) => (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(1));
+
+      const first = points[0], last = points[points.length - 1];
+      const delta = last.trend - first.trend;
+      const dir = Math.abs(delta) < 0.05 ? "flat" : delta < 0 ? "down" : "up";
+
+      const svg = document.createElementNS(NS, "svg");
+      svg.setAttribute("class", "ob-line");
+      svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+      svg.setAttribute("width", String(W));
+      svg.setAttribute("height", String(H));
+      svg.setAttribute("role", "img");
+      svg.setAttribute(
+        "aria-label",
+        `${opts.label}: ${points.length} days, trend from ${fmt(first.trend)} to ` +
+          `${fmt(last.trend)}${unit} (${dir}${dir === "flat" ? "" : ` ${fmt(Math.abs(delta))}${unit}`}). ` +
+          `Faint dots are raw daily readings; the bold line is the smoothed trend.`,
+      );
+
+      // y guide lines + labels at min / max of the plotted range.
+      for (const v of [vMax - pad, vMin + pad]) {
+        const y = yOf(v);
+        const gl = document.createElementNS(NS, "line");
+        gl.setAttribute("class", "ob-line-guide");
+        gl.setAttribute("x1", String(padL));
+        gl.setAttribute("x2", String(padL + plotW));
+        gl.setAttribute("y1", y.toFixed(2));
+        gl.setAttribute("y2", y.toFixed(2));
+        svg.append(gl);
+        const tx = document.createElementNS(NS, "text");
+        tx.setAttribute("class", "ob-line-label");
+        tx.setAttribute("x", String(padL - 6));
+        tx.setAttribute("y", (y + 3).toFixed(2));
+        tx.setAttribute("text-anchor", "end");
+        tx.textContent = fmt(v);
+        svg.append(tx);
+      }
+
+      // Faint raw daily readings (the noise the trend strips).
+      for (const p of points) {
+        const dot = document.createElementNS(NS, "circle");
+        dot.setAttribute("class", "ob-line-raw");
+        dot.setAttribute("cx", xOf(p.t).toFixed(2));
+        dot.setAttribute("cy", yOf(p.raw).toFixed(2));
+        dot.setAttribute("r", points.length > 200 ? "1.1" : "1.7");
+        const title = document.createElementNS(NS, "title");
+        const label = new Date(p.t).toLocaleDateString(undefined, {
+          dateStyle: "medium", timeZone: "UTC",
+        });
+        title.textContent = `${label}: ${fmt(p.raw)}${unit} (trend ${fmt(p.trend)}${unit})`;
+        dot.append(title);
+        svg.append(dot);
+      }
+
+      // Bold trend polyline.
+      const path = document.createElementNS(NS, "polyline");
+      path.setAttribute("class", "ob-line-trend");
+      path.setAttribute("points", points.map((p) => `${xOf(p.t).toFixed(2)},${yOf(p.trend).toFixed(2)}`).join(" "));
+      svg.append(path);
+
+      // Endpoint markers + value labels (start faint, latest emphasized).
+      for (const [p, emphasize] of [[first, false], [last, true]] as const) {
+        const c = document.createElementNS(NS, "circle");
+        c.setAttribute("class", emphasize ? "ob-line-end is-latest" : "ob-line-end");
+        c.setAttribute("cx", xOf(p.t).toFixed(2));
+        c.setAttribute("cy", yOf(p.trend).toFixed(2));
+        c.setAttribute("r", emphasize ? "3.2" : "2.4");
+        svg.append(c);
+      }
+      const endLabel = document.createElementNS(NS, "text");
+      endLabel.setAttribute("class", "ob-line-label is-value");
+      endLabel.setAttribute("x", String(padL + plotW + 6));
+      endLabel.setAttribute("y", (yOf(last.trend) + 3).toFixed(2));
+      endLabel.setAttribute("text-anchor", "start");
+      endLabel.textContent = `${fmt(last.trend)}${unit}`;
+      svg.append(endLabel);
+
+      // x-axis endpoint dates.
+      for (const [p, anchor, x] of [
+        [first, "start", padL],
+        [last, "end", padL + plotW],
+      ] as const) {
+        const tx = document.createElementNS(NS, "text");
+        tx.setAttribute("class", "ob-line-label");
+        tx.setAttribute("x", String(x));
+        tx.setAttribute("y", String(H - 6));
+        tx.setAttribute("text-anchor", anchor);
+        tx.textContent = new Date(p.t).toLocaleDateString(undefined, {
+          month: "short", year: "numeric", timeZone: "UTC",
+        });
+        svg.append(tx);
+      }
+      return svg;
+    }
+
+    // Lazily-built "View raw records" expander: the full mapped OpenBody records as JSON,
+    // reachable but never the default surface. JSON.stringify runs only on first expand so a
+    // large record set never costs anything unless asked for. Still 100% client-side.
+    function appendRawRecords(container: HTMLElement, records: unknown[]) {
+      const details = document.createElement("details");
+      details.className = "ob-raw";
+      const summary = document.createElement("summary");
+      const n = records.length;
+      summary.textContent = `View raw records (${n} OpenBody record${n === 1 ? "" : "s"} as JSON)`;
+      const pre = document.createElement("pre");
+      pre.className = "ob-raw-json";
+      details.append(summary, pre);
+      let built = false;
+      details.addEventListener("toggle", () => {
+        if (details.open && !built) {
+          pre.textContent = JSON.stringify(records, null, 2);
+          built = true;
+        }
+      });
+      container.append(details);
     }
 
     const TOP_MOVEMENTS_SHOWN = 5;
@@ -581,6 +730,30 @@ import { Aside } from "@astrojs/starlight/components";
       resolutionEl.hidden = false;
     }
 
+    // Once a history has more than a handful of sessions, the full per-session breakdown is
+    // an endless scroll — so the summary card above is the lead, and this verbose stack goes
+    // behind a collapsed <details> (opt-in), not the default surface.
+    const SESSION_DETAILS_THRESHOLD = 8;
+
+    // Append `cards` to `previewEl` directly for short lists, or behind a collapsed
+    // <details summary> when there are more than the threshold. Keeps the default surface the
+    // summary + downloads, with the wall-of-cards one click away.
+    function mountCardStack(cards: HTMLElement[], summaryText: string) {
+      if (cards.length > SESSION_DETAILS_THRESHOLD) {
+        const details = document.createElement("details");
+        details.className = "ob-breakdown";
+        const summary = document.createElement("summary");
+        summary.textContent = summaryText;
+        const stack = document.createElement("div");
+        stack.className = "ob-preview-stack";
+        stack.append(...cards);
+        details.append(summary, stack);
+        previewEl.append(details);
+      } else {
+        previewEl.append(...cards);
+      }
+    }
+
     function renderPreview(records: unknown[]) {
       const sessions: SessionSummary[] = summarizeSessions(records as any);
       previewEl.replaceChildren();
@@ -591,6 +764,7 @@ import { Aside } from "@astrojs/starlight/components";
         previewEl.append(p);
       }
 
+      const cards: HTMLElement[] = [];
       for (const session of sessions) {
         const card = document.createElement("article");
         card.className = "ob-session-card";
@@ -624,20 +798,22 @@ import { Aside } from "@astrojs/starlight/components";
           exList.append(exBlock);
         }
         card.append(exList);
-        previewEl.append(card);
+        cards.push(card);
       }
-
+      mountCardStack(cards, `Per-session breakdown (${sessions.length} sessions)`);
+      appendRawRecords(previewEl, records);
       previewEl.hidden = false;
     }
 
     // Endurance sources (Apple Health, Strava) don't have sets/reps to preview or exercise
     // names to resolve — the rollup lives in the unified summary card above; this renders
     // just the per-session cards. Still 100% client-side.
-    const ENDURANCE_PREVIEW_CAP = 50;
+    const ENDURANCE_PREVIEW_CAP = 200;
     function renderEndurancePreview(records: any[]) {
       const summary = summarizeEndurance(records);
 
       previewEl.replaceChildren();
+      const cards: HTMLElement[] = [];
       for (const session of summary.sessions.slice(0, ENDURANCE_PREVIEW_CAP)) {
         const card = document.createElement("article");
         card.className = "ob-session-card";
@@ -650,16 +826,22 @@ import { Aside } from "@astrojs/starlight/components";
         partsEl.className = "ob-session-parts";
         partsEl.textContent = session.parts.join(" · ");
         card.append(heading, dateEl, partsEl);
-        previewEl.append(card);
+        cards.push(card);
       }
+      // The summary card above is the lead; the per-session stack collapses behind a
+      // <details> once it would be an endless scroll.
+      mountCardStack(cards, `Per-session breakdown (${summary.sessions.length} sessions)`);
       if (summary.sessions.length > ENDURANCE_PREVIEW_CAP) {
         const more = document.createElement("p");
         more.className = "ob-preview-more";
         more.textContent =
-          `…and ${summary.sessions.length - ENDURANCE_PREVIEW_CAP} more sessions ` +
-          `(all included in the download).`;
-        previewEl.append(more);
+          `Showing the first ${ENDURANCE_PREVIEW_CAP} of ${summary.sessions.length} sessions ` +
+          `above — all are in the download and the raw records below.`;
+        // Put the "more" note inside the collapsible stack when collapsed, else after it.
+        const stack = previewEl.querySelector(".ob-breakdown .ob-preview-stack") ?? previewEl;
+        stack.append(more);
       }
+      appendRawRecords(previewEl, records);
       previewEl.hidden = false;
     }
 
@@ -707,54 +889,100 @@ import { Aside } from "@astrojs/starlight/components";
       summaryEl.hidden = false;
     }
 
-    // Grouped-by-date table: one section per day, each a small Type / Value table. Newest
-    // day first. Any namespaced fallback type is marked so the caveat above is visible
-    // in-place (canonical types — now every Hevy metric — carry no tag).
-    const MEAS_PREVIEW_CAP = 60;
-    function renderMeasurementsPreview(summary: MeasurementsSummary) {
+    // Body-measurement preview (Phase A). The old surface was a stack of up to 60 near-
+    // identical one-row cards — a low-density wall of scroll for a real 100+-day weight log.
+    // Now: (1) an EWMA bodyweight trend chart (the "aha" — daily water-weight noise stripped),
+    // then (2) ONE compact table, a row per day and a column per metric, in a horizontally
+    // scrollable box so it never breaks page layout. Raw JSON stays reachable behind a toggle.
+    function renderMeasurementsPreview(records: any[]) {
       previewEl.replaceChildren();
-      for (const group of summary.groups.slice(0, MEAS_PREVIEW_CAP)) {
-        const card = document.createElement("article");
-        card.className = "ob-session-card";
 
-        const heading = document.createElement("h3");
-        heading.textContent = group.dateLabel;
-        card.append(heading);
+      // (1) Bodyweight EWMA trend chart, when body_mass exists.
+      const trend: BodyweightTrend | null = bodyweightTrend(records);
+      if (trend && trend.points.length >= 2) {
+        const section = document.createElement("div");
+        section.className = "ob-trend";
+        const caption = document.createElement("p");
+        caption.className = "ob-summary-subhead";
+        caption.textContent = "Bodyweight trend";
+        section.append(caption);
 
-        const table = document.createElement("table");
-        table.className = "ob-meas-table";
-        const tbody = document.createElement("tbody");
-        for (const line of group.lines) {
-          const tr = document.createElement("tr");
-          const typeCell = document.createElement("td");
-          typeCell.className = "ob-meas-type";
-          typeCell.textContent = line.label;
-          if (line.namespaced) {
+        const wrap = document.createElement("div");
+        wrap.className = "ob-line-wrap";
+        section.append(wrap);
+        previewEl.append(section);
+        const width = Math.max(280, Math.min(wrap.clientWidth || 640, 760));
+        wrap.append(
+          buildLineChart(
+            trend.points.map((p) => ({ t: p.t, raw: p.value, trend: p.trend })),
+            { unit: trend.unit, label: "Bodyweight trend", containerWidth: width },
+          ),
+        );
+
+        const delta = trend.last.trend - trend.first.trend;
+        const dirWord = Math.abs(delta) < 0.05 ? "held steady" : delta < 0 ? "down" : "up";
+        const note = document.createElement("p");
+        note.className = "ob-trend-note";
+        note.textContent =
+          `The bold line is an exponentially-weighted moving average (${Math.round(trend.alpha * 100)}% ` +
+          `smoothing — the "Hacker's Diet" trend): it strips day-to-day water-weight noise ` +
+          `from the faint raw readings. Trend ${dirWord === "held steady" ? "held steady" : `${dirWord} ` +
+          `${Math.abs(delta).toFixed(1)} ${trend.unit}`} from ${trend.first.trend.toFixed(1)} to ` +
+          `${trend.last.trend.toFixed(1)} ${trend.unit} over ${trend.points.length} logged days.`;
+        section.append(note);
+      }
+
+      // (2) One compact table: a row per day, a column per (type, laterality) present.
+      const table: MeasurementTable = measurementTable(records);
+      if (table.rows.length > 0) {
+        const scroll = document.createElement("div");
+        scroll.className = "ob-tablewrap";
+        const el = document.createElement("table");
+        el.className = "ob-meas-grid";
+
+        const thead = document.createElement("thead");
+        const headRow = document.createElement("tr");
+        const dateTh = document.createElement("th");
+        dateTh.scope = "col";
+        dateTh.textContent = "Date";
+        headRow.append(dateTh);
+        for (const col of table.columns) {
+          const th = document.createElement("th");
+          th.scope = "col";
+          th.textContent = col.unit ? `${col.label} (${col.unit})` : col.label;
+          if (col.namespaced) {
+            th.title = "No canonical registry type yet — kept as a namespaced token.";
             const tag = document.createElement("span");
             tag.className = "ob-meas-tag";
-            tag.textContent = `${line.type.split(":")[0]}:`;
-            tag.title = "No canonical registry type yet — kept as a namespaced token.";
-            typeCell.append(" ", tag);
+            tag.textContent = `${col.type.split(":")[0]}:`;
+            th.append(" ", tag);
           }
-          const valueCell = document.createElement("td");
-          valueCell.className = "ob-meas-value";
-          valueCell.textContent = line.unit ? `${line.value} ${line.unit}` : line.value;
-          tr.append(typeCell, valueCell);
+          headRow.append(th);
+        }
+        thead.append(headRow);
+
+        const tbody = document.createElement("tbody");
+        for (const row of table.rows) {
+          const tr = document.createElement("tr");
+          const dateTd = document.createElement("th");
+          dateTd.scope = "row";
+          dateTd.className = "ob-meas-daterow";
+          dateTd.textContent = row.dateLabel;
+          tr.append(dateTd);
+          for (const col of table.columns) {
+            const td = document.createElement("td");
+            td.className = "ob-meas-value";
+            td.textContent = row.cells[col.key] ?? "";
+            tr.append(td);
+          }
           tbody.append(tr);
         }
-        table.append(tbody);
-        card.append(table);
-        previewEl.append(card);
+        el.append(thead, tbody);
+        scroll.append(el);
+        previewEl.append(scroll);
       }
-      if (summary.groups.length > MEAS_PREVIEW_CAP) {
-        const more = document.createElement("p");
-        more.className = "ob-preview-more";
-        more.textContent =
-          `…and ${summary.groups.length - MEAS_PREVIEW_CAP} more day` +
-          `${summary.groups.length - MEAS_PREVIEW_CAP === 1 ? "" : "s"} ` +
-          `(all included in the download).`;
-        previewEl.append(more);
-      }
+
+      appendRawRecords(previewEl, records);
       previewEl.hidden = false;
     }
 
@@ -827,7 +1055,7 @@ import { Aside } from "@astrojs/starlight/components";
           // just LiveRecord[]).
           const measSummary = summarizeMeasurements(records as any);
           renderMeasurementsSummary(measSummary);
-          renderMeasurementsPreview(measSummary);
+          renderMeasurementsPreview(records);
         } else {
           renderSummary(summarizeUnified(records as any, kind), kind);
           if (kind === "strength") {
@@ -1336,6 +1564,136 @@ import { Aside } from "@astrojs/starlight/components";
       padding-left: 1.25rem;
       font-size: var(--sl-text-sm);
       color: var(--sl-color-gray-2);
+    }
+
+    /* Bodyweight EWMA trend chart (two-series line: faint raw dots + bold trend). */
+    .ob-trend {
+      border: 1px solid var(--sl-color-hairline);
+      border-radius: 0.5rem;
+      padding: 1rem 1.25rem;
+      background-color: var(--sl-color-bg-nav);
+    }
+    .ob-trend .ob-summary-subhead {
+      margin-top: 0;
+    }
+    .ob-line-wrap {
+      max-width: 48rem;
+    }
+    .ob-line {
+      display: block;
+      max-width: 100%;
+      height: auto;
+    }
+    .ob-line-trend {
+      fill: none;
+      stroke: var(--sl-color-accent);
+      stroke-width: 2;
+      stroke-linejoin: round;
+      stroke-linecap: round;
+    }
+    .ob-line-raw {
+      fill: var(--sl-color-gray-3);
+      opacity: 0.5;
+    }
+    .ob-line-end {
+      fill: var(--sl-color-gray-3);
+    }
+    .ob-line-end.is-latest {
+      fill: var(--sl-color-accent);
+    }
+    .ob-line-guide {
+      stroke: var(--sl-color-hairline);
+      stroke-width: 1;
+      stroke-dasharray: 2 3;
+    }
+    .ob-line-label {
+      fill: var(--sl-color-gray-3);
+      font-family: var(--sl-font);
+      font-size: 11px;
+    }
+    .ob-line-label.is-value {
+      fill: var(--sl-color-text-accent);
+      font-weight: 600;
+    }
+    .ob-trend-note {
+      margin: 0.75rem 0 0;
+      font-size: var(--sl-text-sm);
+      color: var(--sl-color-gray-2);
+      max-width: 65ch;
+    }
+
+    /* Compact per-day measurements table, horizontally scrollable so wide metric sets
+       (many circumferences) never break the page layout. */
+    .ob-tablewrap {
+      overflow-x: auto;
+      border: 1px solid var(--sl-color-hairline);
+      border-radius: 0.5rem;
+    }
+    .ob-meas-grid {
+      border-collapse: collapse;
+      width: 100%;
+      font-size: var(--sl-text-sm);
+      margin: 0;
+    }
+    .ob-meas-grid th,
+    .ob-meas-grid td {
+      padding: 0.35rem 0.7rem;
+      border-bottom: 1px solid var(--sl-color-hairline);
+      white-space: nowrap;
+    }
+    .ob-meas-grid thead th {
+      position: sticky;
+      top: 0;
+      text-align: right;
+      font-weight: 600;
+      color: var(--sl-color-gray-2);
+      background-color: var(--sl-color-bg-nav);
+      border-bottom: 2px solid var(--sl-color-hairline);
+    }
+    .ob-meas-grid thead th:first-child,
+    .ob-meas-grid .ob-meas-daterow {
+      text-align: left;
+    }
+    .ob-meas-grid tbody tr:last-child th,
+    .ob-meas-grid tbody tr:last-child td {
+      border-bottom: none;
+    }
+    .ob-meas-daterow {
+      font-weight: 500;
+      color: var(--sl-color-gray-2);
+    }
+    .ob-meas-grid .ob-meas-value {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      color: var(--sl-color-text);
+    }
+
+    /* Collapsed verbose surfaces: per-session breakdown + raw-JSON expander. */
+    .ob-preview-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .ob-breakdown > summary,
+    .ob-raw > summary {
+      cursor: pointer;
+      font-weight: 600;
+      color: var(--sl-color-gray-2);
+    }
+    .ob-raw {
+      font-size: var(--sl-text-sm);
+    }
+    .ob-raw-json {
+      max-height: 24rem;
+      overflow: auto;
+      margin: 0.6rem 0 0;
+      padding: 0.75rem;
+      border-radius: 0.4rem;
+      border: 1px solid var(--sl-color-hairline);
+      background-color: var(--sl-color-bg);
+      font-family: var(--sl-font-mono);
+      font-size: var(--sl-text-xs);
     }
 
     .ob-btn {
