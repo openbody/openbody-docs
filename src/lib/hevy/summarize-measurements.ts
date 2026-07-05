@@ -6,11 +6,12 @@
 import type { LiveRecord, WireNumber } from "@openbody/openbody-ts";
 
 export interface MeasurementLine {
-  /** Raw `Measurement.type` token (e.g. `body_mass`, `hevy:circumference_bicep_left`). */
+  /** Raw, side-agnostic `Measurement.type` token (e.g. `body_mass`, `bicep_circumference`). */
   type: string;
   /** Humanized label (e.g. "Body mass", "Bicep circumference (left)"). */
   label: string;
-  /** True when the type is a `hevy:`-namespaced fallback (no canonical registry token yet). */
+  /** True when the type is a namespaced (`ns:token`) fallback with no canonical registry
+   * token — now rare/none, since the mapper emits canonical anthropometry tokens. */
   namespaced: boolean;
   /** Exact decimal, straight from the wire number — no float round-trip. */
   value: string;
@@ -28,7 +29,8 @@ export interface MeasurementsSummary {
   count: number;
   /** Distinct measurement types across all rows. */
   typeCount: number;
-  /** Distinct humanized labels that are `hevy:`-namespaced (the registry-gap caveat). */
+  /** Distinct humanized labels that are still namespaced (the registry-gap caveat). Now
+   * typically empty — the mapper emits canonical tokens for every Hevy metric. */
   namespacedLabels: string[];
   rangeStart?: string;
   rangeEnd?: string;
@@ -40,18 +42,30 @@ const CANONICAL_LABEL: Record<string, string> = {
   body_fat_percentage: "Body fat percentage",
 };
 
-/** Humanize a `Measurement.type` token for display. Canonical tokens get a friendly name;
- * `hevy:circumference_<part>[_<side>]` becomes e.g. "Bicep circumference (left)". */
-export function humanizeType(type: string): string {
+/** True when a `Measurement.type` token is namespaced (`ns:token`) — i.e. a registry-gap
+ * fallback with no canonical token. Canonical tokens carry no `:`, so this is now typically
+ * false for every Hevy metric. */
+export function isNamespacedType(type: string): boolean {
+  return /^[a-z0-9]+:/.test(type);
+}
+
+/** Humanize a `Measurement.type` token (plus its optional `laterality`, §4.1) for display.
+ * Canonical body-composition tokens get a friendly name from the lookup; the SIDE-AGNOSTIC
+ * anthropometry circumference tokens (`<part>_circumference`, e.g. `bicep_circumference`)
+ * render as "Bicep circumference", with the side appended from `laterality` when present
+ * ("Bicep circumference (left)"); any remaining namespaced fallback (`ns:token`) is
+ * de-namespaced and de-underscored. */
+export function humanizeType(type: string, laterality?: string): string {
   const canonical = CANONICAL_LABEL[type];
   if (canonical) return canonical;
-  const m = type.match(/^hevy:circumference_(.+)$/);
-  if (m) {
-    const side = m[1].match(/^(.*)_(left|right)$/);
-    const base = side ? side[1] : m[1];
-    const cap = base.charAt(0).toUpperCase() + base.slice(1);
-    return side ? `${cap} circumference (${side[2]})` : `${cap} circumference`;
+  const circ = type.match(/^(.+)_circumference$/);
+  if (circ) {
+    const part = circ[1].replace(/_/g, " ");
+    const cap = part.charAt(0).toUpperCase() + part.slice(1);
+    return laterality ? `${cap} circumference (${laterality})` : `${cap} circumference`;
   }
+  const ns = type.match(/^[a-z0-9]+:(.+)$/);
+  if (ns) return ns[1].replace(/_/g, " ");
   return type;
 }
 
@@ -94,8 +108,8 @@ export function summarizeMeasurements(records: LiveRecord[]): MeasurementsSummar
     if (rec.recordType !== "Measurement") continue;
     const type = String(rec.type ?? "unknown");
     types.add(type);
-    const isNamespaced = type.startsWith("hevy:");
-    const label = humanizeType(type);
+    const isNamespaced = isNamespacedType(type);
+    const label = humanizeType(type, rec.laterality);
     if (isNamespaced) namespaced.set(type, label);
 
     const iso = String(rec.startTime ?? "");

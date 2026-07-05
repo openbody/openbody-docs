@@ -73,12 +73,13 @@ export function detectSource(fileName: string, text: string): SourceId | null {
   if (has("exercise_title") && has("start_time")) return "hevy";
   // Hevy's `measurement_data.csv` (body metrics): a `date` column plus at least one metric
   // column, and — crucially — NO `exercise_title` (that would be the workout export above,
-  // which wins). The metric columns are `weight_kg`, `fat_percent`, or any `*_in`
-  // circumference; a partial export (some metrics never logged) still matches.
+  // which wins). The metric columns are `weight_kg`, `fat_percent`, or any `*_in`/`*_cm`
+  // circumference (Hevy names circumference columns by the user's chosen length unit — inches
+  // OR centimetres); a partial export (some metrics never logged) still matches.
   if (
     has("date") &&
     !has("exercise_title") &&
-    (has("weight_kg") || has("fat_percent") || cols.some((c) => c.endsWith("_in")))
+    (has("weight_kg") || has("fat_percent") || cols.some((c) => c.endsWith("_in") || c.endsWith("_cm")))
   )
     return "hevy-measurements";
   if (has("workout name") && has("exercise name")) return "strong";

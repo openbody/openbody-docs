@@ -60,8 +60,9 @@ import { Aside } from "@astrojs/starlight/components";
         <code>measurement_data.csv</code> alongside the workout export).</p>
       <p class="ob-source-what">
         Body metrics logged over time: weight and body-fat become canonical OpenBody
-        measurements; body circumferences (neck, chest, biceps, waist, …) are kept under a
-        namespaced <code>hevy:</code> type until the registry gains a circumference vocabulary.
+        measurements, and body circumferences (neck, chest, biceps, waist, …) map to the
+        canonical anthropometry types — with the tape-measure unit (inches or centimetres)
+        preserved from your Hevy setting.
       </p>
     </div>
     <div class="ob-source-card">
@@ -641,9 +642,9 @@ import { Aside } from "@astrojs/starlight/components";
 
     // Measurement sources (Hevy's measurement_data.csv) have no sessions, exercises, or
     // disciplines — the summary card and preview are body metrics only. Still 100%
-    // client-side. The summary states the count + type coverage and, honestly, flags the
-    // circumference types that are `hevy:`-namespaced because the canonical registry has no
-    // circumference vocabulary yet (mirrors how the Strong-CSV omissions are surfaced).
+    // client-side. The summary states the count + type coverage; every Hevy metric now maps
+    // to a canonical registry type, so the namespaced-fallback caveat below is retained only
+    // as a safety net for any future registry-gap token (typically it stays empty).
     function renderMeasurementsSummary(summary: MeasurementsSummary) {
       summaryEl.replaceChildren();
 
@@ -663,27 +664,29 @@ import { Aside } from "@astrojs/starlight/components";
       const facts = document.createElement("p");
       facts.className = "ob-summary-facts";
       facts.textContent =
-        "Weight and body-fat are mapped to canonical OpenBody types (body_mass, " +
-        "body_fat_percentage). Each is a point-in-time Measurement record.";
+        "Weight and body-fat map to canonical OpenBody types (body_mass, body_fat_percentage); " +
+        "body circumferences map to the side-agnostic anthropometry types (e.g. neck_circumference, " +
+        "bicep_circumference) with the side on the laterality field (left/right) and the " +
+        "tape-measure unit (in or cm) preserved. Each is a point-in-time Measurement record.";
       summaryEl.append(facts);
 
       if (summary.namespacedLabels.length > 0) {
         const note = document.createElement("p");
         note.className = "ob-strong-note";
         note.textContent =
-          `${summary.namespacedLabels.length} circumference type` +
+          `${summary.namespacedLabels.length} type` +
           `${summary.namespacedLabels.length === 1 ? "" : "s"} (` +
           `${summary.namespacedLabels.join(", ")}) have no canonical registry type yet, so ` +
-          `they're kept under a namespaced hevy: token (e.g. hevy:circumference_waist). ` +
-          `That's lossless and still schema-valid — it just flags where the registry's ` +
-          `vocabulary hasn't caught up.`;
+          `they're kept under a namespaced token. That's lossless and still schema-valid — it ` +
+          `just flags where the registry's vocabulary hasn't caught up.`;
         summaryEl.append(note);
       }
       summaryEl.hidden = false;
     }
 
     // Grouped-by-date table: one section per day, each a small Type / Value table. Newest
-    // day first. Namespaced (hevy:) types are marked so the caveat above is visible in-place.
+    // day first. Any namespaced fallback type is marked so the caveat above is visible
+    // in-place (canonical types — now every Hevy metric — carry no tag).
     const MEAS_PREVIEW_CAP = 60;
     function renderMeasurementsPreview(summary: MeasurementsSummary) {
       previewEl.replaceChildren();
@@ -706,7 +709,7 @@ import { Aside } from "@astrojs/starlight/components";
           if (line.namespaced) {
             const tag = document.createElement("span");
             tag.className = "ob-meas-tag";
-            tag.textContent = "hevy:";
+            tag.textContent = `${line.type.split(":")[0]}:`;
             tag.title = "No canonical registry type yet — kept as a namespaced token.";
             typeCell.append(" ", tag);
           }
