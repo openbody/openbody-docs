@@ -618,14 +618,13 @@
         previewEl.append(p);
       }
 
-      // Each session is its own collapsible <details>: collapsed it's a scannable
-      // name · date · count row, so the section is a tidy list instead of a wall of every
-      // set; the first opens as a preview of what's inside.
+      // Each session is its own collapsible <details>, closed by default: collapsed it's a
+      // scannable name · date · count row, so the section is a tidy list the reader expands
+      // on demand instead of a wall of every set.
       const cards: HTMLElement[] = [];
       sessions.forEach((session, idx) => {
         const card = document.createElement("details");
         card.className = "ob-session-card";
-        if (idx === 0) card.open = true;
 
         const sum = document.createElement("summary");
         sum.className = "ob-session-sum";
@@ -680,13 +679,12 @@
       const summary = summarizeEndurance(records);
 
       previewEl.replaceChildren();
-      // Same collapsible-per-session treatment as strength: collapsed, each is a name · date
-      // row carrying its summary line; the first opens as a preview.
+      // Same collapsible-per-session treatment as strength, closed by default: each is a
+      // name · date row carrying its summary line, expanded on demand.
       const cards: HTMLElement[] = [];
       summary.sessions.slice(0, ENDURANCE_PREVIEW_CAP).forEach((session, idx) => {
         const card = document.createElement("details");
         card.className = "ob-session-card";
-        if (idx === 0) card.open = true;
         const sum = document.createElement("summary");
         sum.className = "ob-session-sum";
         const heading = document.createElement("span");

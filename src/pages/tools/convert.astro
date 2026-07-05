@@ -1313,6 +1313,9 @@ import { Aside } from "@astrojs/starlight/components";
     .ob-lean-export-h { margin: 0; font-size: var(--sl-text-lg); font-weight: 600; color: var(--sl-color-white); }
     .ob-lean-export-sub { margin: 0.25rem 0 0; font-size: var(--sl-text-sm); color: var(--sl-color-gray-2); max-width: 60ch; }
     .ob-lean-export-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; }
+    /* Starlight's markdown flow-spacing gives every non-first sibling a margin-top; on the
+       second button that pushed it below the first. Zero it so the flex row aligns. */
+    .ob-lean-export-actions > .ob-btn { margin: 0; }
     .ob-btn-lg { font-size: var(--sl-text-base); padding: 0.7rem 1.4rem; }
     .ob-lean-export-meta {
       margin: 0.85rem 0 0;
