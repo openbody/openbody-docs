@@ -111,10 +111,15 @@ import { Aside } from "@astrojs/starlight/components";
 
   <div id="convert-tool" class="ob-tool">
     <label id="drop-zone" for="file-input" class="ob-dropzone">
-      <input id="file-input" type="file" accept=".csv,.xml,text/csv,text/xml,application/xml" />
-      <span class="ob-dropzone-title">Choose an export file, or drag it here</span>
-      <span class="ob-dropzone-sub">Hevy workout CSV · Hevy measurement CSV · Strong CSV · Apple Health export.xml · Strava activities.csv</span>
-      <span class="ob-dropzone-sub">Nothing is uploaded — parsing happens in your browser.</span>
+      <input
+        id="file-input"
+        type="file"
+        multiple
+        accept=".csv,.xml,.json,text/csv,text/xml,application/xml,application/json"
+      />
+      <span class="ob-dropzone-title">Choose one or more export files, or drag them here</span>
+      <span class="ob-dropzone-sub">Hevy workout CSV · Hevy measurement CSV · Strong CSV · Apple Health export.xml · Strava activities.csv · an OpenBody JSON you exported earlier</span>
+      <span class="ob-dropzone-sub">Add files from several apps and they merge into one history. Nothing is uploaded — it all runs in your browser.</span>
     </label>
 
     <div class="ob-option-row">
@@ -127,14 +132,17 @@ import { Aside } from "@astrojs/starlight/components";
         spellcheck="false"
       />
       <span class="ob-option-hint">
-        The id every record is tagged with. Leave blank and a placeholder
-        (<code>subj-001</code>) is used instead.
+        The id every record is tagged with — applied to <em>every</em> file you add, so records
+        from different apps share one subject and can be de-duplicated across sources. Leave blank
+        and a placeholder (<code>subj-001</code>) is used instead.
       </span>
     </div>
 
     <p id="status" class="ob-status-msg" role="status" aria-live="polite" hidden></p>
 
     <p id="subject-note" class="ob-note" role="note" hidden></p>
+
+    <div id="layers" class="ob-layers" hidden></div>
 
     <div id="summary" class="ob-summary" hidden></div>
 
@@ -197,10 +205,13 @@ import { Aside } from "@astrojs/starlight/components";
       mapOpenBodyToStrong,
       MapperInputError,
       DEFAULT_SUBJECT,
+      validate,
+      parseLossless,
       type MapOptions,
       type ToStrongResult,
       type MapWarning,
     } from "@openbody/openbody-ts";
+    import { mergeLayers, toPlainNumbers, type MergeStats } from "../../components/merge";
     import { summarizeSessions, formatSetLine, type SessionSummary } from "../../lib/hevy/summarize";
     import {
       summarizeMeasurements,
@@ -242,9 +253,42 @@ import { Aside } from "@astrojs/starlight/components";
     const emailStatus = document.getElementById("email-status") as HTMLElement;
     const emailDismiss = document.getElementById("email-dismiss") as HTMLButtonElement;
 
-    let lastRecords: unknown[] | null = null;
-    let lastBaseName = "openbody-export";
+    const layersEl = document.getElementById("layers") as HTMLElement;
+
+    // --- Phase B state: an accumulator of source "layers" ---------------------------------
+    // Phase A converted ONE upload at a time. Phase B keeps every upload as a "layer" and the
+    // dashboard + downloads always reflect the MERGE of the ENABLED layers (see
+    // components/merge.ts). Uploading a single file still works exactly as before — it's just
+    // a one-layer accumulator.
+    interface Layer {
+      /** Stable per-layer key; also the id-namespace prefix used by merge.ts. */
+      id: string;
+      /** "<source label> · <filename>". */
+      label: string;
+      source: SourceId | "openbody";
+      records: any[];
+      enabled: boolean;
+      /** Constant/positional-id sources (Apple Health) get their ids prefixed so two files
+       *  can't collide; content-stable sources + OpenBody re-imports keep their ids. */
+      namespaced: boolean;
+      warnings: MapWarning[];
+      /** e.g. "3 records failed validation and were skipped" (OpenBody re-import). */
+      note?: string;
+      /** Original file text — lets a Subject-ID change re-map the layer with the mapper. */
+      text?: string;
+      fileName: string;
+    }
+
+    let layers: Layer[] = [];
+    let layerSeq = 0;
+    let lastMerged: any[] | null = null;
     let lastStrong: ToStrongResult | null = null;
+    let lastBaseName = "openbody-export";
+
+    // Apple Health mints constant/positional ids (apple-workout-6, apple-q-3) that collide
+    // across different export files; namespacing per layer keeps two files distinct. The
+    // content-stable CSV/JSON sources keep their ids so re-import → same id → exact collapse.
+    const NAMESPACED_SOURCES = new Set<SourceId>(["apple-health"]);
 
     function setStatus(message: string, kind: "info" | "success" | "error") {
       statusEl.hidden = false;
@@ -252,21 +296,9 @@ import { Aside } from "@astrojs/starlight/components";
       statusEl.className = `ob-status-msg is-${kind}`;
     }
 
-    function resetPreview() {
-      subjectNoteEl.hidden = true;
-      subjectNoteEl.replaceChildren();
-      previewEl.hidden = true;
-      previewEl.replaceChildren();
-      resolutionEl.hidden = true;
-      resolutionEl.replaceChildren();
-      summaryEl.hidden = true;
-      summaryEl.replaceChildren();
-      strongInfoEl.hidden = true;
-      strongInfoEl.replaceChildren();
-      downloadBtn.hidden = true;
-      downloadStrongBtn.hidden = true;
-      lastRecords = null;
-      lastStrong = null;
+    /** A merged Session with sets/exercises is "strength"; without, it's "endurance". */
+    function hasSets(rec: any): boolean {
+      return (rec.exercises?.length ?? 0) > 0 || (rec.blocks?.length ?? 0) > 0;
     }
 
     // --- unified post-conversion summary (all sources) ---------------------------------
@@ -494,7 +526,12 @@ import { Aside } from "@astrojs/starlight/components";
 
     const TOP_MOVEMENTS_SHOWN = 5;
 
-    function renderSummary(summary: UnifiedSummary, kind: "strength" | "endurance") {
+    function renderSummary(
+      summary: UnifiedSummary,
+      kind: "strength" | "endurance",
+      host: HTMLElement,
+    ) {
+      const summaryEl = host; // write into the panel's own sub-section (Phase B multi-panel)
       summaryEl.replaceChildren();
 
       // Headline: sessions + date range.
@@ -610,7 +647,8 @@ import { Aside } from "@astrojs/starlight/components";
 
     const OMISSIONS_SHOWN = 200;
 
-    function renderStrongInfo(strong: ToStrongResult) {
+    function renderStrongInfo(strong: ToStrongResult, host: HTMLElement) {
+      const strongInfoEl = host;
       strongInfoEl.replaceChildren();
 
       const intro = document.createElement("p");
@@ -660,25 +698,13 @@ import { Aside } from "@astrojs/starlight/components";
       strongInfoEl.hidden = false;
     }
 
-    // Honest note instead of a dead button when the converted file has no strength sets.
-    function renderStrongUnavailable() {
-      strongInfoEl.replaceChildren();
-      const p = document.createElement("p");
-      p.className = "ob-strong-note";
-      p.textContent =
-        "No Strong CSV for this one: Strong's format is a lifting log (sets of reps, " +
-        "weight, duration, distance), so these sessions have no faithful home there. The " +
-        "OpenBody JSON keeps everything.";
-      strongInfoEl.append(p);
-      strongInfoEl.hidden = false;
-    }
-
     // Exercise-identity resolution summary (SPEC §6): the mappers now climb the matching
     // ladder via the canonical registry crosswalk, so each Exercise's `exerciseRef` carries
     // a canonical `id` when the app's exercise name is a known movement, and always keeps
     // the original name losslessly (`opaque`). This runs on the already-mapped records —
     // still 100% client-side, nothing leaves the browser.
-    function renderResolution(records: any[]) {
+    function renderResolution(records: any[], host: HTMLElement) {
+      const resolutionEl = host;
       const refs: { name: string; id?: string }[] = [];
       const seen = new Set<string>();
       for (const session of records) {
@@ -738,7 +764,7 @@ import { Aside } from "@astrojs/starlight/components";
     // Append `cards` to `previewEl` directly for short lists, or behind a collapsed
     // <details summary> when there are more than the threshold. Keeps the default surface the
     // summary + downloads, with the wall-of-cards one click away.
-    function mountCardStack(cards: HTMLElement[], summaryText: string) {
+    function mountCardStack(cards: HTMLElement[], summaryText: string, host: HTMLElement) {
       if (cards.length > SESSION_DETAILS_THRESHOLD) {
         const details = document.createElement("details");
         details.className = "ob-breakdown";
@@ -748,13 +774,14 @@ import { Aside } from "@astrojs/starlight/components";
         stack.className = "ob-preview-stack";
         stack.append(...cards);
         details.append(summary, stack);
-        previewEl.append(details);
+        host.append(details);
       } else {
-        previewEl.append(...cards);
+        host.append(...cards);
       }
     }
 
-    function renderPreview(records: unknown[]) {
+    function renderPreview(records: unknown[], host: HTMLElement) {
+      const previewEl = host;
       const sessions: SessionSummary[] = summarizeSessions(records as any);
       previewEl.replaceChildren();
 
@@ -800,16 +827,15 @@ import { Aside } from "@astrojs/starlight/components";
         card.append(exList);
         cards.push(card);
       }
-      mountCardStack(cards, `Per-session breakdown (${sessions.length} sessions)`);
-      appendRawRecords(previewEl, records);
-      previewEl.hidden = false;
+      mountCardStack(cards, `Per-session breakdown (${sessions.length} sessions)`, previewEl);
     }
 
     // Endurance sources (Apple Health, Strava) don't have sets/reps to preview or exercise
     // names to resolve — the rollup lives in the unified summary card above; this renders
     // just the per-session cards. Still 100% client-side.
     const ENDURANCE_PREVIEW_CAP = 200;
-    function renderEndurancePreview(records: any[]) {
+    function renderEndurancePreview(records: any[], host: HTMLElement) {
+      const previewEl = host;
       const summary = summarizeEndurance(records);
 
       previewEl.replaceChildren();
@@ -830,7 +856,7 @@ import { Aside } from "@astrojs/starlight/components";
       }
       // The summary card above is the lead; the per-session stack collapses behind a
       // <details> once it would be an endless scroll.
-      mountCardStack(cards, `Per-session breakdown (${summary.sessions.length} sessions)`);
+      mountCardStack(cards, `Per-session breakdown (${summary.sessions.length} sessions)`, previewEl);
       if (summary.sessions.length > ENDURANCE_PREVIEW_CAP) {
         const more = document.createElement("p");
         more.className = "ob-preview-more";
@@ -841,8 +867,6 @@ import { Aside } from "@astrojs/starlight/components";
         const stack = previewEl.querySelector(".ob-breakdown .ob-preview-stack") ?? previewEl;
         stack.append(more);
       }
-      appendRawRecords(previewEl, records);
-      previewEl.hidden = false;
     }
 
     // Measurement sources (Hevy's measurement_data.csv) have no sessions, exercises, or
@@ -850,7 +874,8 @@ import { Aside } from "@astrojs/starlight/components";
     // client-side. The summary states the count + type coverage; every Hevy metric now maps
     // to a canonical registry type, so the namespaced-fallback caveat below is retained only
     // as a safety net for any future registry-gap token (typically it stays empty).
-    function renderMeasurementsSummary(summary: MeasurementsSummary) {
+    function renderMeasurementsSummary(summary: MeasurementsSummary, host: HTMLElement) {
+      const summaryEl = host;
       summaryEl.replaceChildren();
 
       const title = document.createElement("p");
@@ -894,7 +919,8 @@ import { Aside } from "@astrojs/starlight/components";
     // Now: (1) an EWMA bodyweight trend chart (the "aha" — daily water-weight noise stripped),
     // then (2) ONE compact table, a row per day and a column per metric, in a horizontally
     // scrollable box so it never breaks page layout. Raw JSON stays reachable behind a toggle.
-    function renderMeasurementsPreview(records: any[]) {
+    function renderMeasurementsPreview(records: any[], host: HTMLElement) {
+      const previewEl = host;
       previewEl.replaceChildren();
 
       // (1) Bodyweight EWMA trend chart, when body_mass exists.
@@ -981,9 +1007,6 @@ import { Aside } from "@astrojs/starlight/components";
         scroll.append(el);
         previewEl.append(scroll);
       }
-
-      appendRawRecords(previewEl, records);
-      previewEl.hidden = false;
     }
 
     const SUPPORTED_HINT =
@@ -1007,129 +1030,391 @@ import { Aside } from "@astrojs/starlight/components";
       }
     }
 
-    async function handleFile(file: File) {
-      resetPreview();
-      emailCapture.hidden = true;
-      setStatus(`Reading ${file.name}…`, "info");
+    // --- ingest: turn one uploaded file into a source layer -----------------------------
+    // Detects an OpenBody JSON re-import (a JSON array of records) OR an app export, maps it,
+    // and pushes a layer. Never throws to the caller — returns a per-file {ok, message}. The
+    // Subject-ID field applies to EVERY file so cross-source records share a subject.
+
+    /** Recognize an OpenBody document: a JSON array whose items carry a `recordType`. */
+    function looksLikeOpenBody(fileName: string, text: string): any[] | null {
+      if (!/\.json$/i.test(fileName) && !text.trimStart().startsWith("[")) return null;
+      let parsed: unknown;
       try {
-        // ZIP (Apple Health export.zip, Strava archive) — ask for the inner file instead of
-        // shipping an unzip library to the browser.
-        const magic = new Uint8Array(await file.slice(0, 2).arrayBuffer());
-        if (magic[0] === 0x50 && magic[1] === 0x4b) {
-          setStatus(
-            "That's a ZIP archive. Unzip it first, then drop the file inside: export.xml " +
-              "for Apple Health, activities.csv for Strava.",
-            "error",
-          );
-          return;
-        }
+        // parseLossless is robust (RFC-strict, __proto__-safe); toPlainNumbers coerces its
+        // LosslessNumber values to plain JS numbers so records validate, dedup and export.
+        parsed = toPlainNumbers(parseLossless(text));
+      } catch {
+        return null;
+      }
+      if (!Array.isArray(parsed) || parsed.length === 0) return null;
+      const looksRecord = parsed.some(
+        (r) => r && typeof r === "object" && typeof (r as any).recordType === "string",
+      );
+      return looksRecord ? (parsed as any[]) : null;
+    }
 
-        const text = await file.text();
-        const source = detectSource(file.name, text);
-        if (!source) {
-          setStatus(`Couldn't recognize that file as a supported export. ${SUPPORTED_HINT}`, "error");
-          return;
-        }
-        setStatus(`Detected ${SOURCE_LABEL[source]} — parsing…`, "info");
+    async function ingestFile(file: File): Promise<{ ok: boolean; message: string }> {
+      // ZIP (Apple Health export.zip, Strava archive) — ask for the inner file instead of
+      // shipping an unzip library to the browser.
+      const magic = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+      if (magic[0] === 0x50 && magic[1] === 0x4b) {
+        return {
+          ok: false,
+          message: `${file.name}: that's a ZIP — unzip it first and add the inner file ` +
+            `(export.xml for Apple Health, activities.csv for Strava).`,
+        };
+      }
 
-        const kind = SOURCE_KIND[source];
-        // A blank subject field means "let the mapper stamp its placeholder"; a filled-in
-        // one is threaded through as MapOptions.subject so no placeholder is fabricated.
-        const subject = subjectInput?.value.trim() || undefined;
-        const { records, warnings } = mapForSource(source, text, { subject });
-        const sessionCount = records.filter((r: any) => r.recordType === "Session").length;
-        if (!records.length || (kind === "strength" && sessionCount === 0)) {
-          setStatus(
-            `No ${kind === "measurements" ? "measurements" : "workouts"} found in that file — ` +
-              `is it an unmodified ${SOURCE_LABEL[source]} export?`,
-            "error",
-          );
-          return;
-        }
-        lastRecords = records;
-        lastBaseName = file.name.replace(/\.(csv|xml)$/i, "") || "openbody-export";
+      const text = await file.text();
+      const subject = subjectInput?.value.trim() || undefined;
 
-        if (kind === "measurements") {
-          // No sessions to summarize/resolve and no Strong CSV to offer — just the body
-          // metrics, grouped by date. The OpenBody JSON download below still works (it's
-          // just LiveRecord[]).
-          const measSummary = summarizeMeasurements(records as any);
-          renderMeasurementsSummary(measSummary);
-          renderMeasurementsPreview(records);
-        } else {
-          renderSummary(summarizeUnified(records as any, kind), kind);
-          if (kind === "strength") {
-            renderResolution(records);
-            renderPreview(records);
-            // Second download: the same history as a Strong-importable CSV (non-strict — the
-            // omissions report says exactly what the format couldn't hold).
-            lastStrong = mapOpenBodyToStrong(records as any);
-            renderStrongInfo(lastStrong);
-            downloadStrongBtn.hidden = false;
-          } else {
-            renderEndurancePreview(records);
-            renderStrongUnavailable();
+      // OpenBody JSON re-import (the round-trip path): validate each record; surface — never
+      // silently drop — any that fail.
+      const obRecords = looksLikeOpenBody(file.name, text);
+      if (obRecords) {
+        const valid: any[] = [];
+        let invalid = 0;
+        const reasons: string[] = [];
+        for (const r of obRecords) {
+          if (validate(r).valid) valid.push(r);
+          else {
+            invalid++;
+            const e = validate(r).errors;
+            if (reasons.length < 1 && e) reasons.push(e);
           }
         }
+        if (valid.length === 0) {
+          return {
+            ok: false,
+            message: `${file.name}: looks like OpenBody JSON but no records validated` +
+              `${invalid ? ` (${invalid} failed)` : ""}.`,
+          };
+        }
+        // Unify subject across layers when one is given, so cross-source dedup can match.
+        if (subject) for (const r of valid) r.subject = subject;
+        layers.push({
+          id: `layer-${++layerSeq}`,
+          label: `OpenBody JSON (re-import) · ${file.name}`,
+          source: "openbody",
+          records: valid,
+          enabled: true,
+          namespaced: false, // re-imports carry authoritative ids already
+          warnings: [],
+          note: invalid
+            ? `${invalid} record${invalid === 1 ? "" : "s"} failed validation and ` +
+              `${invalid === 1 ? "was" : "were"} skipped (not counted, not exported).` +
+              `${reasons[0] ? ` First error: ${reasons[0]}` : ""}`
+            : undefined,
+          fileName: file.name,
+        });
+        return {
+          ok: true,
+          message: `${file.name}: re-imported ${valid.length} OpenBody record` +
+            `${valid.length === 1 ? "" : "s"}${invalid ? `, skipped ${invalid} invalid` : ""}.`,
+        };
+      }
 
-        const measurementCount = records.length - sessionCount;
-        const parsedBits: string[] = [];
-        if (kind !== "measurements") {
-          parsedBits.push(`${sessionCount} session${sessionCount === 1 ? "" : "s"}`);
-        }
-        if (measurementCount > 0) {
-          // "measurement records", not "measurements": a Hevy measurement_data.csv row can
-          // yield several records (one per non-empty metric cell), so the record count is
-          // usually higher than the number of logged dates. The date span lives in the
-          // summary card above.
-          parsedBits.push(
-            `${measurementCount} measurement record${measurementCount === 1 ? "" : "s"}`,
-          );
-        }
-        if (parsedBits.length === 0) parsedBits.push("0 records");
-
-        // The "no subject id given → placeholder used" warning is working-as-intended, not a
-        // problem — split it out (by its stable `code`, not by message text) and show it as a
-        // neutral info note. Every other warning is a genuine one and still surfaces in the
-        // success status line.
-        const usedDefaultSubject = warnings.some((w) => w.code === "default-subject");
-        const realWarnings = warnings.filter((w) => w.code !== "default-subject");
-        const warningsNote = realWarnings.length
-          ? ` ${realWarnings.length} warning${realWarnings.length === 1 ? "" : "s"}: ` +
-            `${realWarnings.map((w) => w.message).join("; ")}`
-          : "";
-        setStatus(
-          `${SOURCE_LABEL[source]}: parsed ${parsedBits.join(" and ")} from ${file.name}. ` +
-            `Nothing left your browser.${warningsNote}`,
-          "success",
-        );
-        if (usedDefaultSubject) {
-          subjectNoteEl.textContent =
-            `Note: no subject ID given, so records use a placeholder id “${DEFAULT_SUBJECT}”. ` +
-            `Add one in the field above to use your own.`;
-          subjectNoteEl.hidden = false;
-        }
-        downloadBtn.hidden = false;
-        emailCapture.hidden = false;
+      // App export path.
+      const source = detectSource(file.name, text);
+      if (!source) {
+        return { ok: false, message: `${file.name}: not a recognized export. ${SUPPORTED_HINT}` };
+      }
+      let mapped: { records: any[]; warnings: MapWarning[] };
+      try {
+        mapped = mapForSource(source, text, { subject });
       } catch (err) {
         console.error("[convert-tool] parse failed:", err);
-        if (err instanceof MapperInputError) {
-          // The mapper already explains exactly what's wrong (e.g. which column is
-          // missing) — surface that message as-is rather than a generic wrapper.
-          setStatus(`${err.message}. ${SUPPORTED_HINT}`, "error");
-        } else {
-          setStatus(
-            `Couldn't parse that file (${err instanceof Error ? err.message : String(err)}). ` +
-              `Make sure it's an unmodified export. ${SUPPORTED_HINT}`,
-            "error",
-          );
+        return {
+          ok: false,
+          message:
+            err instanceof MapperInputError
+              ? `${file.name}: ${err.message}`
+              : `${file.name}: couldn't parse (${err instanceof Error ? err.message : String(err)}).`,
+        };
+      }
+      const { records, warnings } = mapped;
+      const kind = SOURCE_KIND[source];
+      const sessionCount = records.filter((r: any) => r.recordType === "Session").length;
+      if (!records.length || (kind === "strength" && sessionCount === 0)) {
+        return {
+          ok: false,
+          message: `${file.name}: no ${kind === "measurements" ? "measurements" : "workouts"} ` +
+            `found — is it an unmodified ${SOURCE_LABEL[source]}?`,
+        };
+      }
+      layers.push({
+        id: `layer-${++layerSeq}`,
+        label: `${SOURCE_LABEL[source]} · ${file.name}`,
+        source,
+        records,
+        enabled: true,
+        namespaced: NAMESPACED_SOURCES.has(source),
+        warnings,
+        text, // keep the raw text so a Subject-ID change can re-map this layer
+        fileName: file.name,
+      });
+      const realWarnings = warnings.filter((w) => w.code !== "default-subject");
+      return {
+        ok: true,
+        message: `${file.name}: parsed ${records.length} record${records.length === 1 ? "" : "s"} ` +
+          `from ${SOURCE_LABEL[source]}` +
+          `${realWarnings.length ? ` (${realWarnings.length} warning${realWarnings.length === 1 ? "" : "s"})` : ""}.`,
+      };
+    }
+
+    async function handleFiles(files: File[]) {
+      if (!files.length) return;
+      emailCapture.hidden = true;
+      setStatus(`Reading ${files.length} file${files.length === 1 ? "" : "s"}…`, "info");
+      const results: { ok: boolean; message: string }[] = [];
+      for (const file of files) {
+        try {
+          results.push(await ingestFile(file));
+        } catch (err) {
+          console.error("[convert-tool] ingest failed:", err);
+          results.push({
+            ok: false,
+            message: `${file.name}: ${err instanceof Error ? err.message : String(err)}`,
+          });
         }
       }
+      renderAll();
+      const okCount = results.filter((r) => r.ok).length;
+      const errCount = results.length - okCount;
+      const kind = okCount === 0 ? "error" : errCount ? "info" : "success";
+      setStatus(results.map((r) => r.message).join("  "), kind);
+      if (okCount > 0) emailCapture.hidden = false;
+    }
+
+    // --- render: the whole surface is a MERGE of the enabled layers ---------------------
+
+    function renderAll() {
+      renderLayerList();
+      renderSubjectNote();
+      renderDashboard();
+    }
+
+    function renderLayerList() {
+      layersEl.replaceChildren();
+      if (layers.length === 0) {
+        layersEl.hidden = true;
+        return;
+      }
+      const head = document.createElement("p");
+      head.className = "ob-layers-head";
+      head.textContent =
+        `Sources (${layers.length}) — toggle any on or off, or remove one; the dashboard and ` +
+        `download update to match.`;
+      layersEl.append(head);
+
+      const list = document.createElement("ul");
+      list.className = "ob-layer-list";
+      for (const layer of layers) {
+        const li = document.createElement("li");
+        li.className = "ob-layer";
+
+        const toggle = document.createElement("label");
+        toggle.className = "ob-layer-toggle";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = layer.enabled;
+        cb.addEventListener("change", () => {
+          layer.enabled = cb.checked;
+          renderDashboard();
+        });
+        const name = document.createElement("span");
+        name.className = "ob-layer-label";
+        name.textContent = layer.label;
+        const count = document.createElement("span");
+        count.className = "ob-layer-count";
+        count.textContent = `${layer.records.length} rec${layer.records.length === 1 ? "" : "s"}`;
+        toggle.append(cb, name, count);
+
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "ob-layer-remove";
+        remove.textContent = "Remove";
+        remove.setAttribute("aria-label", `Remove ${layer.fileName}`);
+        remove.addEventListener("click", () => {
+          layers = layers.filter((l) => l.id !== layer.id);
+          renderAll();
+        });
+
+        li.append(toggle, remove);
+        if (layer.note) {
+          const note = document.createElement("p");
+          note.className = "ob-layer-note";
+          note.textContent = layer.note;
+          li.append(note);
+        }
+        list.append(li);
+      }
+      layersEl.append(list);
+      layersEl.hidden = false;
+    }
+
+    function renderSubjectNote() {
+      if (layers.length === 0) {
+        subjectNoteEl.hidden = true;
+        subjectNoteEl.replaceChildren();
+        return;
+      }
+      const noSubject = (subjectInput?.value.trim() || "") === "";
+      const usesDefault = noSubject && layers.some((l) => l.source !== "openbody");
+      subjectNoteEl.textContent = usesDefault
+        ? `The Subject ID applies to every file, so cross-source records can be de-duplicated. ` +
+          `No ID given, so a placeholder “${DEFAULT_SUBJECT}” is used — set one above to use your own.`
+        : `The Subject ID applies to every file, so records from different apps share one subject ` +
+          `and are de-duplicated across sources.`;
+      subjectNoteEl.hidden = false;
+    }
+
+    /** A titled dashboard panel; returns its body element to render sub-sections into. */
+    function panel(title: string): HTMLElement {
+      const section = document.createElement("section");
+      section.className = "ob-panel";
+      const h = document.createElement("h3");
+      h.className = "ob-panel-title";
+      h.textContent = title;
+      const body = document.createElement("div");
+      body.className = "ob-panel-body";
+      section.append(h, body);
+      previewEl.append(section);
+      return body;
+    }
+
+    /** A fresh sub-section div inside a panel body (each renderer owns its own container). */
+    function sub(host: HTMLElement): HTMLElement {
+      const div = document.createElement("div");
+      host.append(div);
+      return div;
+    }
+
+    function renderMergeStats(stats: MergeStats) {
+      summaryEl.replaceChildren();
+      const line = document.createElement("p");
+      line.className = "ob-merge-stats";
+      const bits = [
+        `${stats.total} record${stats.total === 1 ? "" : "s"} from ` +
+          `${stats.sources} source${stats.sources === 1 ? "" : "s"}`,
+      ];
+      if (stats.exactCollapsed > 0) {
+        bits.push(`${stats.exactCollapsed} duplicate${stats.exactCollapsed === 1 ? "" : "s"} merged`);
+      }
+      if (stats.linked > 0) bits.push(`${stats.linked} linked across sources`);
+      line.textContent = bits.join(" · ");
+      summaryEl.append(line);
+      summaryEl.hidden = false;
+    }
+
+    function renderDashboard() {
+      // Reset every dashboard surface (the layer list persists — it's the control).
+      summaryEl.replaceChildren();
+      summaryEl.hidden = true;
+      resolutionEl.replaceChildren();
+      resolutionEl.hidden = true;
+      previewEl.replaceChildren();
+      previewEl.hidden = true;
+      strongInfoEl.replaceChildren();
+      strongInfoEl.hidden = true;
+      downloadBtn.hidden = true;
+      downloadStrongBtn.hidden = true;
+      lastMerged = null;
+      lastStrong = null;
+
+      const enabled = layers.filter((l) => l.enabled);
+      if (enabled.length === 0) {
+        if (layers.length > 0) {
+          const p = document.createElement("p");
+          p.className = "ob-merge-stats";
+          p.textContent = "All sources are toggled off — enable at least one above.";
+          summaryEl.append(p);
+          summaryEl.hidden = false;
+        }
+        return;
+      }
+
+      const { merged, stats } = mergeLayers(
+        enabled.map((l) => ({
+          id: l.id,
+          label: l.label,
+          records: l.records,
+          enabled: true,
+          namespaced: l.namespaced,
+        })),
+      );
+      lastMerged = merged;
+      lastBaseName =
+        enabled.length === 1
+          ? enabled[0].fileName.replace(/\.(csv|xml|json)$/i, "") || "openbody-export"
+          : "openbody-merged";
+
+      renderMergeStats(stats);
+      // Make the preview visible before building panels so inline-SVG charts can size
+      // themselves from their real container width.
+      previewEl.hidden = false;
+
+      const merges = merged as any[];
+      const strengthSessions = merges.filter((r) => r.recordType === "Session" && hasSets(r));
+      const enduranceSessions = merges.filter((r) => r.recordType === "Session" && !hasSets(r));
+      const measurements = merges.filter((r) => r.recordType === "Measurement");
+
+      // Body measurements first — the bodyweight EWMA trend is the headline "aha", and it now
+      // spans EVERY body_mass source in the merge (Hevy measurements + Apple body mass + …).
+      if (measurements.length > 0) {
+        const body = panel("Body measurements");
+        renderMeasurementsSummary(summarizeMeasurements(measurements as any), sub(body));
+        renderMeasurementsPreview(measurements as any, sub(body));
+      }
+
+      // Strength — summary + exercise resolution + per-session breakdown, over every strength
+      // source in the merge (Hevy + Strong).
+      if (strengthSessions.length > 0) {
+        const body = panel("Strength training");
+        renderSummary(summarizeUnified(strengthSessions as any, "strength"), "strength", sub(body));
+        renderResolution(strengthSessions as any, sub(body));
+        renderPreview(strengthSessions as any, sub(body));
+        lastStrong = mapOpenBodyToStrong(strengthSessions as any);
+        renderStrongInfo(lastStrong, sub(body));
+        downloadStrongBtn.hidden = false;
+      }
+
+      // Endurance & activities — Strava + Apple Health sessions.
+      if (enduranceSessions.length > 0) {
+        const body = panel("Endurance & activities");
+        renderSummary(summarizeUnified(enduranceSessions as any, "endurance"), "endurance", sub(body));
+        renderEndurancePreview(enduranceSessions as any, sub(body));
+      }
+
+      // One raw-records expander over the whole merged, deduped set.
+      appendRawRecords(previewEl, merged);
+      downloadBtn.hidden = false;
     }
 
     fileInput?.addEventListener("change", () => {
-      const file = fileInput.files?.[0];
-      if (file) void handleFile(file);
+      const files = fileInput.files ? Array.from(fileInput.files) : [];
+      if (files.length) void handleFiles(files);
+      fileInput.value = ""; // allow re-selecting the same file name
+    });
+
+    subjectInput?.addEventListener("change", () => {
+      if (layers.length === 0) return;
+      const subject = subjectInput.value.trim() || undefined;
+      // Subject applies to ALL layers: re-map app layers from their stored text (the mapper's
+      // own, canonical way to stamp a subject) and re-stamp OpenBody re-imports directly.
+      for (const layer of layers) {
+        if (layer.source === "openbody") {
+          if (subject) for (const r of layer.records) r.subject = subject;
+          continue;
+        }
+        if (!layer.text) continue;
+        try {
+          layer.records = mapForSource(layer.source as SourceId, layer.text, { subject }).records;
+        } catch (err) {
+          console.error("[convert-tool] re-map on subject change failed:", err);
+        }
+      }
+      renderAll();
     });
 
     dropZone?.addEventListener("dragover", (e) => {
@@ -1141,13 +1426,13 @@ import { Aside } from "@astrojs/starlight/components";
     }
     dropZone?.addEventListener("drop", (e) => {
       e.preventDefault();
-      const file = e.dataTransfer?.files?.[0];
-      if (file) void handleFile(file);
+      const files = e.dataTransfer?.files ? Array.from(e.dataTransfer.files) : [];
+      if (files.length) void handleFiles(files);
     });
 
     downloadBtn?.addEventListener("click", () => {
-      if (!lastRecords) return;
-      const blob = new Blob([JSON.stringify(lastRecords, null, 2)], { type: "application/json" });
+      if (!lastMerged) return;
+      const blob = new Blob([JSON.stringify(lastMerged, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -1334,6 +1619,118 @@ import { Aside } from "@astrojs/starlight/components";
     }
     .ob-note code {
       font-size: 0.95em;
+    }
+
+    /* Phase B: accumulated source layers with per-layer toggle + remove. */
+    .ob-layers {
+      border: 1px solid var(--sl-color-hairline);
+      border-radius: 0.5rem;
+      padding: 0.9rem 1.1rem;
+      background-color: var(--sl-color-bg-nav);
+    }
+    .ob-layers-head {
+      margin: 0 0 0.6rem;
+      font-size: var(--sl-text-sm);
+      font-weight: 600;
+      color: var(--sl-color-gray-2);
+    }
+    .ob-layer-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .ob-layer {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 0.3rem 0.75rem;
+      padding: 0.5rem 0.65rem;
+      border: 1px solid var(--sl-color-hairline);
+      border-radius: 0.4rem;
+      background-color: var(--sl-color-bg);
+    }
+    .ob-layer-toggle {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      cursor: pointer;
+      font-size: var(--sl-text-sm);
+      min-width: 0;
+    }
+    .ob-layer-toggle input[type="checkbox"] {
+      flex: none;
+      width: 1.05rem;
+      height: 1.05rem;
+      accent-color: var(--sl-color-accent);
+      cursor: pointer;
+    }
+    .ob-layer-label {
+      font-weight: 600;
+      overflow-wrap: anywhere;
+    }
+    .ob-layer-count {
+      flex: none;
+      font-size: var(--sl-text-xs);
+      font-variant-numeric: tabular-nums;
+      color: var(--sl-color-gray-3);
+      padding: 0.1rem 0.5rem;
+      border-radius: 999px;
+      border: 1px solid var(--sl-color-hairline);
+    }
+    .ob-layer-remove {
+      grid-column: 2;
+      font: inherit;
+      font-size: var(--sl-text-xs);
+      font-weight: 600;
+      padding: 0.25rem 0.6rem;
+      border-radius: 0.35rem;
+      border: 1px solid var(--sl-color-gray-5);
+      background-color: transparent;
+      color: var(--sl-color-gray-2);
+      cursor: pointer;
+    }
+    .ob-layer-remove:hover {
+      border-color: #b3261e;
+      color: #b3261e;
+    }
+    .ob-layer-note {
+      grid-column: 1 / -1;
+      margin: 0.1rem 0 0;
+      font-size: var(--sl-text-xs);
+      color: var(--sl-color-gray-3);
+    }
+
+    /* Merge headline (the payoff line) + per-kind dashboard panels. */
+    .ob-merge-stats {
+      margin: 0;
+      font-weight: 600;
+      font-size: var(--sl-text-lg);
+      color: var(--sl-color-text);
+    }
+    .ob-panel {
+      border: 1px solid var(--sl-color-hairline);
+      border-radius: 0.5rem;
+      padding: 1rem 1.25rem;
+      background-color: var(--sl-color-bg-nav);
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .ob-panel-title {
+      margin: 0;
+      font-size: var(--sl-text-base);
+      font-weight: 700;
+      color: var(--sl-color-white);
+      border-bottom: 1px solid var(--sl-color-hairline);
+      padding-bottom: 0.5rem;
+    }
+    .ob-panel-body {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
     }
 
     .ob-status-msg {
