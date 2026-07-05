@@ -97,3 +97,27 @@ stamps the wall-clock time with the optional `utcOffset` option (default `"Z"`),
 machine's local timezone — the same bytes map to the same records everywhere. A `Z` here is
 the mapper's default assumption, not source-provided offset information.
 </Aside>
+
+## Body measurements (`measurement_data.csv`)
+
+Hevy also exports a separate **`measurement_data.csv`** of body metrics logged over time
+(one row per date; blank cells for metrics not recorded that day). The
+[`mapHevyMeasurements`](https://github.com/openbody/openbody-ts/blob/main/src/mappers/hevy-measurements.ts)
+mapper — `mapHevyMeasurements(csv) → { records, warnings }` — turns each non-empty cell into a
+point-in-time `Measurement` (Pillar A), and the [converter](/tools/convert/) detects and
+reads it automatically.
+
+| Column | OpenBody `Measurement.type` | Unit |
+|---|---|---|
+| `weight_kg` | `body_mass` (canonical) | `kg` |
+| `fat_percent` | `body_fat_percentage` (canonical) | `%` |
+| `*_in` circumferences (`neck_in`, `chest_in`, `left_bicep_in`, …) | `hevy:circumference_<part>[_left｜_right]` (namespaced) | `[in_i]` |
+
+Weight and body-fat resolve to **canonical** registry types. The body-circumference columns
+have **no canonical registry vocabulary yet** (the body-composition subset covers only
+`body_mass`, `body_fat_percentage`, `lean_body_mass`, `bmi`), so each is kept under a
+`hevy:`-namespaced token — lossless and schema-valid, and each distinct unmapped column raises
+a one-time `unmapped-measurement-type` warning as an honest registry-gap signal. Laterality
+has no schema field, so left/right is encoded **in the token** (`hevy:circumference_bicep_left`)
+rather than silently collapsed. Each measurement is point-in-time (`startTime == endTime`), and
+the offset-less `date` is stamped with the same `utcOffset` default (`"Z"`) as the workout export.

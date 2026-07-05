@@ -37,7 +37,7 @@ import { Aside } from "@astrojs/starlight/components";
   <Aside type="caution" title="Early, experimental">
     OpenBody itself is a <strong>pre-v1.0 draft standard</strong> (see the
     <a href="/specification/">specification</a>), and this converter is a demo tool, not a
-    finished product. It reads the four export formats below via the reference mappers in
+    finished product. It reads the export formats below via the reference mappers in
     <a href="https://github.com/openbody/openbody-ts">openbody-ts</a>; each card says
     exactly what is and isn't read. More formats (FIT files, per-activity GPX) are planned;
     see the <a href="/mapping/">mapping guides</a> for the mappings that exist in the
@@ -52,6 +52,16 @@ import { Aside } from "@astrojs/starlight/components";
       <p class="ob-source-what">
         Full lifting history: workouts, exercises, sets, reps, load, RPE, supersets.
         Exercise names are matched to canonical OpenBody movements where known.
+      </p>
+    </div>
+    <div class="ob-source-card">
+      <p class="ob-source-name">Hevy — body-measurement CSV</p>
+      <p class="ob-source-how">Hevy app → Profile → Settings → Export Data (the
+        <code>measurement_data.csv</code> alongside the workout export).</p>
+      <p class="ob-source-what">
+        Body metrics logged over time: weight and body-fat become canonical OpenBody
+        measurements; body circumferences (neck, chest, biceps, waist, …) are kept under a
+        namespaced <code>hevy:</code> type until the registry gains a circumference vocabulary.
       </p>
     </div>
     <div class="ob-source-card">
@@ -102,7 +112,7 @@ import { Aside } from "@astrojs/starlight/components";
     <label id="drop-zone" for="file-input" class="ob-dropzone">
       <input id="file-input" type="file" accept=".csv,.xml,text/csv,text/xml,application/xml" />
       <span class="ob-dropzone-title">Choose an export file, or drag it here</span>
-      <span class="ob-dropzone-sub">Hevy CSV · Strong CSV · Apple Health export.xml · Strava activities.csv</span>
+      <span class="ob-dropzone-sub">Hevy workout CSV · Hevy measurement CSV · Strong CSV · Apple Health export.xml · Strava activities.csv</span>
       <span class="ob-dropzone-sub">Nothing is uploaded — parsing happens in your browser.</span>
     </label>
 
@@ -163,6 +173,7 @@ import { Aside } from "@astrojs/starlight/components";
   <script>
     import {
       mapHevy,
+      mapHevyMeasurements,
       mapStrong,
       mapAppleHealth,
       mapOpenBodyToStrong,
@@ -171,6 +182,10 @@ import { Aside } from "@astrojs/starlight/components";
       type MapWarning,
     } from "@openbody/openbody-ts";
     import { summarizeSessions, formatSetLine, type SessionSummary } from "../../lib/hevy/summarize";
+    import {
+      summarizeMeasurements,
+      type MeasurementsSummary,
+    } from "../../lib/hevy/summarize-measurements";
     import {
       detectSource,
       mapStravaActivitiesCsv,
@@ -624,12 +639,108 @@ import { Aside } from "@astrojs/starlight/components";
       previewEl.hidden = false;
     }
 
+    // Measurement sources (Hevy's measurement_data.csv) have no sessions, exercises, or
+    // disciplines — the summary card and preview are body metrics only. Still 100%
+    // client-side. The summary states the count + type coverage and, honestly, flags the
+    // circumference types that are `hevy:`-namespaced because the canonical registry has no
+    // circumference vocabulary yet (mirrors how the Strong-CSV omissions are surfaced).
+    function renderMeasurementsSummary(summary: MeasurementsSummary) {
+      summaryEl.replaceChildren();
+
+      const title = document.createElement("p");
+      title.className = "ob-summary-title";
+      let head =
+        `${summary.count} measurement${summary.count === 1 ? "" : "s"} · ` +
+        `${summary.typeCount} type${summary.typeCount === 1 ? "" : "s"}`;
+      if (summary.rangeStart && summary.rangeEnd) {
+        const from = rangeLabel(summary.rangeStart);
+        const to = rangeLabel(summary.rangeEnd);
+        head += from === to ? ` · ${from}` : ` · ${from} – ${to}`;
+      }
+      title.textContent = head;
+      summaryEl.append(title);
+
+      const facts = document.createElement("p");
+      facts.className = "ob-summary-facts";
+      facts.textContent =
+        "Weight and body-fat are mapped to canonical OpenBody types (body_mass, " +
+        "body_fat_percentage). Each is a point-in-time Measurement record.";
+      summaryEl.append(facts);
+
+      if (summary.namespacedLabels.length > 0) {
+        const note = document.createElement("p");
+        note.className = "ob-strong-note";
+        note.textContent =
+          `${summary.namespacedLabels.length} circumference type` +
+          `${summary.namespacedLabels.length === 1 ? "" : "s"} (` +
+          `${summary.namespacedLabels.join(", ")}) have no canonical registry type yet, so ` +
+          `they're kept under a namespaced hevy: token (e.g. hevy:circumference_waist). ` +
+          `That's lossless and still schema-valid — it just flags where the registry's ` +
+          `vocabulary hasn't caught up.`;
+        summaryEl.append(note);
+      }
+      summaryEl.hidden = false;
+    }
+
+    // Grouped-by-date table: one section per day, each a small Type / Value table. Newest
+    // day first. Namespaced (hevy:) types are marked so the caveat above is visible in-place.
+    const MEAS_PREVIEW_CAP = 60;
+    function renderMeasurementsPreview(summary: MeasurementsSummary) {
+      previewEl.replaceChildren();
+      for (const group of summary.groups.slice(0, MEAS_PREVIEW_CAP)) {
+        const card = document.createElement("article");
+        card.className = "ob-session-card";
+
+        const heading = document.createElement("h3");
+        heading.textContent = group.dateLabel;
+        card.append(heading);
+
+        const table = document.createElement("table");
+        table.className = "ob-meas-table";
+        const tbody = document.createElement("tbody");
+        for (const line of group.lines) {
+          const tr = document.createElement("tr");
+          const typeCell = document.createElement("td");
+          typeCell.className = "ob-meas-type";
+          typeCell.textContent = line.label;
+          if (line.namespaced) {
+            const tag = document.createElement("span");
+            tag.className = "ob-meas-tag";
+            tag.textContent = "hevy:";
+            tag.title = "No canonical registry type yet — kept as a namespaced token.";
+            typeCell.append(" ", tag);
+          }
+          const valueCell = document.createElement("td");
+          valueCell.className = "ob-meas-value";
+          valueCell.textContent = line.unit ? `${line.value} ${line.unit}` : line.value;
+          tr.append(typeCell, valueCell);
+          tbody.append(tr);
+        }
+        table.append(tbody);
+        card.append(table);
+        previewEl.append(card);
+      }
+      if (summary.groups.length > MEAS_PREVIEW_CAP) {
+        const more = document.createElement("p");
+        more.className = "ob-preview-more";
+        more.textContent =
+          `…and ${summary.groups.length - MEAS_PREVIEW_CAP} more day` +
+          `${summary.groups.length - MEAS_PREVIEW_CAP === 1 ? "" : "s"} ` +
+          `(all included in the download).`;
+        previewEl.append(more);
+      }
+      previewEl.hidden = false;
+    }
+
     const SUPPORTED_HINT =
-      "Supported: Hevy CSV, Strong CSV, Apple Health export.xml, Strava activities.csv.";
+      "Supported: Hevy workout CSV, Hevy measurement_data.csv, Strong CSV, " +
+      "Apple Health export.xml, Strava activities.csv.";
 
     function mapForSource(source: SourceId, text: string): { records: any[]; warnings: MapWarning[] } {
       switch (source) {
         case "hevy": return mapHevy(text);
+        // Hevy's body-measurement export → point-in-time Measurement records (no sessions).
+        case "hevy-measurements": return mapHevyMeasurements(text);
         case "strong": return mapStrong(text);
         case "apple-health": return mapAppleHealth(text);
         // mapStravaActivitiesCsv is a docs-only adapter (fans out per-row mapStrava calls),
@@ -663,11 +774,13 @@ import { Aside } from "@astrojs/starlight/components";
         }
         setStatus(`Detected ${SOURCE_LABEL[source]} — parsing…`, "info");
 
+        const kind = SOURCE_KIND[source];
         const { records, warnings } = mapForSource(source, text);
         const sessionCount = records.filter((r: any) => r.recordType === "Session").length;
-        if (!records.length || (SOURCE_KIND[source] === "strength" && sessionCount === 0)) {
+        if (!records.length || (kind === "strength" && sessionCount === 0)) {
           setStatus(
-            `No workouts found in that file — is it an unmodified ${SOURCE_LABEL[source]} export?`,
+            `No ${kind === "measurements" ? "measurements" : "workouts"} found in that file — ` +
+              `is it an unmodified ${SOURCE_LABEL[source]} export?`,
             "error",
           );
           return;
@@ -675,25 +788,38 @@ import { Aside } from "@astrojs/starlight/components";
         lastRecords = records;
         lastBaseName = file.name.replace(/\.(csv|xml)$/i, "") || "openbody-export";
 
-        renderSummary(summarizeUnified(records as any, SOURCE_KIND[source]), SOURCE_KIND[source]);
-        if (SOURCE_KIND[source] === "strength") {
-          renderResolution(records);
-          renderPreview(records);
-          // Second download: the same history as a Strong-importable CSV (non-strict — the
-          // omissions report says exactly what the format couldn't hold).
-          lastStrong = mapOpenBodyToStrong(records as any);
-          renderStrongInfo(lastStrong);
-          downloadStrongBtn.hidden = false;
+        if (kind === "measurements") {
+          // No sessions to summarize/resolve and no Strong CSV to offer — just the body
+          // metrics, grouped by date. The OpenBody JSON download below still works (it's
+          // just LiveRecord[]).
+          const measSummary = summarizeMeasurements(records as any);
+          renderMeasurementsSummary(measSummary);
+          renderMeasurementsPreview(measSummary);
         } else {
-          renderEndurancePreview(records);
-          renderStrongUnavailable();
+          renderSummary(summarizeUnified(records as any, kind), kind);
+          if (kind === "strength") {
+            renderResolution(records);
+            renderPreview(records);
+            // Second download: the same history as a Strong-importable CSV (non-strict — the
+            // omissions report says exactly what the format couldn't hold).
+            lastStrong = mapOpenBodyToStrong(records as any);
+            renderStrongInfo(lastStrong);
+            downloadStrongBtn.hidden = false;
+          } else {
+            renderEndurancePreview(records);
+            renderStrongUnavailable();
+          }
         }
 
         const measurementCount = records.length - sessionCount;
-        const parsedBits = [`${sessionCount} session${sessionCount === 1 ? "" : "s"}`];
+        const parsedBits: string[] = [];
+        if (kind !== "measurements") {
+          parsedBits.push(`${sessionCount} session${sessionCount === 1 ? "" : "s"}`);
+        }
         if (measurementCount > 0) {
           parsedBits.push(`${measurementCount} measurement${measurementCount === 1 ? "" : "s"}`);
         }
+        if (parsedBits.length === 0) parsedBits.push("0 records");
         const warningsNote = warnings.length
           ? ` ${warnings.length} warning${warnings.length === 1 ? "" : "s"}: ${warnings.map((w) => w.message).join("; ")}`
           : "";
@@ -1061,6 +1187,38 @@ import { Aside } from "@astrojs/starlight/components";
       font-size: var(--sl-text-sm);
       color: var(--sl-color-gray-3);
       font-style: italic;
+    }
+
+    /* Hevy body-measurement preview: one small Type / Value table per day. */
+    .ob-meas-table {
+      width: 100%;
+      margin: 0.5rem 0 0;
+      border-collapse: collapse;
+      font-size: var(--sl-text-sm);
+    }
+    .ob-meas-table td {
+      padding: 0.3rem 0.5rem;
+      border-top: 1px solid var(--sl-color-hairline);
+    }
+    .ob-meas-table tr:first-child td {
+      border-top: none;
+    }
+    .ob-meas-type {
+      color: var(--sl-color-gray-2);
+    }
+    .ob-meas-value {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      color: var(--sl-color-text);
+    }
+    .ob-meas-tag {
+      font-family: var(--sl-font-mono);
+      font-size: var(--sl-text-xs);
+      padding: 0.05rem 0.35rem;
+      border-radius: 0.25rem;
+      border: 1px solid var(--sl-color-gray-5);
+      color: var(--sl-color-gray-3);
     }
     .ob-exercise-list {
       display: flex;

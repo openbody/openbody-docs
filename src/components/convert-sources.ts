@@ -13,19 +13,23 @@
 //   stream parsing is intentionally out of scope for now.
 import { mapStrava, type LiveRecord, type ScalarOrTarget } from "@openbody/openbody-ts";
 
-export type SourceId = "hevy" | "strong" | "apple-health" | "strava";
+export type SourceId = "hevy" | "hevy-measurements" | "strong" | "apple-health" | "strava";
 
 export const SOURCE_LABEL: Record<SourceId, string> = {
   hevy: "Hevy workout CSV",
+  "hevy-measurements": "Hevy body-measurement CSV",
   strong: "Strong workout CSV",
   "apple-health": "Apple Health export.xml",
   strava: "Strava activities.csv",
 };
 
 /** Strength sources get the exercise-resolution + set-by-set preview; endurance sources
- * get a sessions/disciplines/distance summary instead. */
-export const SOURCE_KIND: Record<SourceId, "strength" | "endurance"> = {
+ * get a sessions/disciplines/distance summary; `measurements` sources (Hevy's
+ * `measurement_data.csv`) have no sessions at all — just point-in-time body metrics, shown
+ * as a date-grouped table. */
+export const SOURCE_KIND: Record<SourceId, "strength" | "endurance" | "measurements"> = {
   hevy: "strength",
+  "hevy-measurements": "measurements",
   strong: "strength",
   "apple-health": "endurance",
   strava: "endurance",
@@ -67,6 +71,16 @@ export function detectSource(fileName: string, text: string): SourceId | null {
   const cols = sniffHeaderCells(head.split(/\r?\n/, 1)[0] ?? "");
   const has = (name: string) => cols.includes(name);
   if (has("exercise_title") && has("start_time")) return "hevy";
+  // Hevy's `measurement_data.csv` (body metrics): a `date` column plus at least one metric
+  // column, and — crucially — NO `exercise_title` (that would be the workout export above,
+  // which wins). The metric columns are `weight_kg`, `fat_percent`, or any `*_in`
+  // circumference; a partial export (some metrics never logged) still matches.
+  if (
+    has("date") &&
+    !has("exercise_title") &&
+    (has("weight_kg") || has("fat_percent") || cols.some((c) => c.endsWith("_in")))
+  )
+    return "hevy-measurements";
   if (has("workout name") && has("exercise name")) return "strong";
   if (has("activity id") && has("activity date")) return "strava";
   return null;
