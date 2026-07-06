@@ -17,6 +17,8 @@
     "@astrojs/starlight": "^0.30.3",
     "@openbody/openbody-ts": "file:../openbody-ts",
     "astro": "^5.1.1",
+    "buffer": "^6.0.3",
+    "fit-file-parser": "^3.0.2",
     "github-slugger": "^2.0.0",
     "sharp": "^0.33.5"
   },
