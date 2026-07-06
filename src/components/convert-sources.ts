@@ -23,7 +23,8 @@ export type SourceId =
   | "tcx"
   | "concept2"
   | "thecrag"
-  | "fitbit";
+  | "fitbit"
+  | "fit";
 
 export const SOURCE_LABEL: Record<SourceId, string> = {
   hevy: "Hevy workout CSV",
@@ -39,6 +40,9 @@ export const SOURCE_LABEL: Record<SourceId, string> = {
   // files feeds a single mapFitbitTakeout call (batched in the convert tool), not one file
   // → one layer like every source above.
   fitbit: "Fitbit Takeout",
+  // FIT is the one BINARY source: a Garmin/Wahoo/Zwift device export, decoded in-browser
+  // (fit-file-parser) then mapped by mapFit — see components/convert-fit.ts.
+  fit: "FIT activity",
 };
 
 /** Strength sources get the exercise-resolution + set-by-set preview; endurance sources
@@ -60,6 +64,8 @@ export const SOURCE_KIND: Record<SourceId, "strength" | "endurance" | "measureme
   // Fitbit Takeout emits Sessions (exercise logs) + Measurements (weight, HR, steps, sleep)
   // — endurance-shaped like the tracks above.
   fitbit: "endurance",
+  // FIT activity: one performed Session + sensor-stream Measurements (HR/power/cadence/GPS).
+  fit: "endurance",
 };
 
 // --- detection -------------------------------------------------------------------------

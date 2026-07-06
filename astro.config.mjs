@@ -9,7 +9,21 @@ export default defineConfig({
   site: "https://openbody.dev",
   trailingSlash: "ignore",
   vite: {
+    resolve: {
+      alias: {
+        // FIT support (convert tool): fit-file-parser reads FIT strings via
+        // `import { Buffer } from "buffer"`. In the browser that bare specifier must resolve to
+        // the `buffer` npm package (a self-contained Buffer polyfill), NOT a Node builtin (which
+        // doesn't exist client-side). Pin it to the package's browser entry so the shim lands in
+        // the CLIENT bundle. `buffer/` (trailing slash) forces package resolution, avoiding an
+        // alias self-reference loop on the bare `buffer` specifier.
+        buffer: "buffer/",
+      },
+    },
     optimizeDeps: {
+      // Pre-bundle the FIT decoder + its Buffer polyfill so the convert page's client script
+      // gets a browser-ready ESM build of both (fit-file-parser is ESM but pulls in `buffer`).
+      include: ["fit-file-parser", "buffer"],
       // Keep Vite's dev dependency pre-bundling scanner away from the convert page.
       // Its hoisted client `<script>` (now `src/scripts/convert-tool.ts`) trips a known
       // esbuild scan-time parse bug in the Astro hoisted-script scanner, printing a red but

@@ -21,7 +21,7 @@ import { Aside } from "@astrojs/starlight/components";
   frontmatter={{
     title: "Convert your workout data",
     description:
-      "Upload a Hevy, Strong, Apple Health, Strava, GPX, TCX, Concept2, theCrag, or Fitbit (Google Takeout) export and see it parsed into portable OpenBody JSON, entirely in your browser. No signup, no server, no upload.",
+      "Upload a Hevy, Strong, Apple Health, Strava, GPX, TCX, FIT, Concept2, theCrag, or Fitbit (Google Takeout) export and see it parsed into portable OpenBody JSON, entirely in your browser. No signup, no server, no upload.",
     tableOfContents: false,
   }}
 >
@@ -42,9 +42,8 @@ import { Aside } from "@astrojs/starlight/components";
     <a href="/specification/">specification</a>), and this converter is a demo tool, not a
     finished product. It reads the export formats below via the reference mappers in
     <a href="https://github.com/openbody/openbody-ts">openbody-ts</a>; each card says
-    exactly what is and isn't read. More formats (FIT files) are planned;
-    see the <a href="/mapping/">mapping guides</a> for the mappings that exist in the
-    reference implementation.
+    exactly what is and isn't read. See the <a href="/mapping/">mapping guides</a> for the
+    mappings that exist in the reference implementation.
   </Aside>
   </div>
 
@@ -57,10 +56,10 @@ import { Aside } from "@astrojs/starlight/components";
         id="file-input"
         type="file"
         multiple
-        accept=".csv,.xml,.json,text/csv,text/xml,application/xml,application/json"
+        accept=".csv,.xml,.json,.fit,text/csv,text/xml,application/xml,application/json,application/octet-stream"
       />
       <span id="ob-dropzone-title" class="ob-dropzone-title">Choose one or more export files, or drag them here</span>
-      <span class="ob-dropzone-sub">Hevy workout CSV · Hevy measurement CSV · Strong CSV · Apple Health export.xml · Strava activities.csv · GPX / TCX track · Concept2 season CSV · theCrag logbook CSV · Fitbit Google Takeout JSON · an OpenBody JSON you exported earlier</span>
+      <span class="ob-dropzone-sub">Hevy workout CSV · Hevy measurement CSV · Strong CSV · Apple Health export.xml · Strava activities.csv · GPX / TCX track · FIT activity file · Concept2 season CSV · theCrag logbook CSV · Fitbit Google Takeout JSON · an OpenBody JSON you exported earlier</span>
       <span class="ob-dropzone-sub">Add files from several apps and they merge into one history. Nothing is uploaded — it all runs in your browser.</span>
     </label>
 
@@ -202,6 +201,20 @@ import { Aside } from "@astrojs/starlight/components";
       <p class="ob-source-what">
         One session per activity, with lap structure preserved as work units (time, distance,
         calories, per-lap heart-rate) and trackpoint heart-rate/cadence/power/GPS streams.
+      </p>
+    </div>
+    <div class="ob-source-card">
+      <p class="ob-source-name">FIT — activity file</p>
+      <p class="ob-source-how">
+        The native binary format your device writes: export a <code>.fit</code> from Garmin
+        Connect, Wahoo, Zwift, COROS, or Suunto (usually the per-activity "Export to FIT" or the
+        <code>.fit</code> in your account's data download).
+      </p>
+      <p class="ob-source-what">
+        Decoded in your browser — nothing is uploaded. The recorded activity becomes one session
+        (sport, duration, distance, calories) plus heart-rate, power, cadence, and GPS-route
+        streams from the per-second records. Per-lap splits and structured-workout
+        <em>definition</em> files aren't mapped yet; recorded activities are.
       </p>
     </div>
     <div class="ob-source-card">
