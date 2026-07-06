@@ -8,6 +8,7 @@
       mapConcept2,
       mapTheCrag,
       mapFitbitTakeout,
+      mapFit,
       mapOpenBodyToStrong,
       MapperInputError,
       DEFAULT_SUBJECT,
@@ -17,6 +18,7 @@
       type ToStrongResult,
       type MapWarning,
       type FitbitFile,
+      type FitInput,
     } from "@openbody/openbody-ts";
     import { mergeLayers, toPlainNumbers, type MergeStats } from "../components/merge";
     import { summarizeSessions, formatSetLine, type SessionSummary } from "../lib/hevy/summarize";
@@ -31,6 +33,7 @@
       type SourceId,
       type WeeklyPoint,
     } from "../components/convert-sources";
+    import { decodeFitToInput, looksLikeFitHeader } from "../components/convert-fit";
     import {
       bodyweightTrend,
       measurementTable,
@@ -101,6 +104,9 @@
       /** Fitbit-only: the whole batch of Takeout files that produced this layer. Fitbit is
        *  many-files→one-mapper, so a Subject-ID change re-maps from THIS array (not `text`). */
       fitbitFiles?: FitbitFile[];
+      /** FIT-only: the decoded message-list shape (mapFit's input). FIT is binary, so re-mapping
+       *  on a Subject-ID change runs mapFit against THIS (no re-decode of the bytes). */
+      fitInput?: FitInput;
       fileName: string;
     }
 
@@ -587,7 +593,7 @@
 
     const SUPPORTED_HINT =
       "Supported: Hevy workout CSV, Hevy measurement_data.csv, Strong CSV, " +
-      "Apple Health export.xml, Strava activities.csv, GPX/TCX tracks, " +
+      "Apple Health export.xml, Strava activities.csv, GPX/TCX tracks, FIT activity files, " +
       "Concept2 season CSV, theCrag logbook CSV, Fitbit (Google Takeout) JSON.";
 
     function mapForSource(
@@ -617,6 +623,12 @@
           throw new MapperInputError(
             "fitbit", "Fitbit Takeout is mapped as a batch of files, not one file at a time",
           );
+        // FIT is binary: decoded + mapped on its own path (ingestFitFile), never routed through
+        // this text mapper. Guard so the exhaustive switch stays total.
+        case "fit":
+          throw new MapperInputError(
+            "fit", "FIT is a binary source, decoded and mapped on its own path, not as text",
+          );
       }
     }
 
@@ -644,15 +656,34 @@
     }
 
     async function ingestFile(file: File): Promise<{ ok: boolean; message: string }> {
-      // ZIP (Apple Health export.zip, Strava archive) — ask for the inner file instead of
-      // shipping an unzip library to the browser.
-      const magic = new Uint8Array(await file.slice(0, 2).arrayBuffer());
-      if (magic[0] === 0x50 && magic[1] === 0x4b) {
+      // Read the header bytes once, up front, to classify BINARY containers before the text
+      // reader below. ZIP (Apple Health export.zip, Strava archive) is rejected with guidance;
+      // FIT (Garmin/Wahoo/Zwift device export) is the one binary source we decode in-browser.
+      const header = new Uint8Array(await file.slice(0, 14).arrayBuffer());
+
+      // ZIP — ask for the inner file instead of shipping an unzip library to the browser.
+      if (header[0] === 0x50 && header[1] === 0x4b) {
         return {
           ok: false,
           message: `${file.name}: that's a ZIP — unzip it first and add the inner file ` +
             `(export.xml for Apple Health, activities.csv for Strava).`,
         };
+      }
+
+      // FIT — detected by the header magic (".FIT" at bytes 8–11), with the `.fit` extension as
+      // a corroborating hint. Binary, so it never goes through the text reader below: decode the
+      // whole ArrayBuffer in-browser (fit-file-parser) and map via mapFit. A `.fit`-named file
+      // whose bytes aren't a real FIT header gets a clear error rather than a mis-parse.
+      const isFitName = /\.fit$/i.test(file.name);
+      if (looksLikeFitHeader(header) || isFitName) {
+        if (!looksLikeFitHeader(header)) {
+          return {
+            ok: false,
+            message: `${file.name}: has a .fit name but no FIT header (".FIT" magic) — ` +
+              `is it a real FIT activity file from a Garmin/Wahoo/Zwift export?`,
+          };
+        }
+        return ingestFitFile(file);
       }
 
       const text = await file.text();
@@ -749,6 +780,65 @@
         ok: true,
         message: `${file.name}: parsed ${records.length} record${records.length === 1 ? "" : "s"} ` +
           `from ${SOURCE_LABEL[source]}` +
+          `${realWarnings.length ? ` (${realWarnings.length} warning${realWarnings.length === 1 ? "" : "s"})` : ""}.`,
+      };
+    }
+
+    // --- ingest: decode one binary FIT file into a source layer --------------------------
+    // FIT is the only BINARY source. openbody-ts's mapFit deliberately doesn't decode the bytes
+    // (licensing: no correctly-licensed decoder can be bundled INTO the package), so the decode
+    // step lives here — fit-file-parser (MIT) turns the ArrayBuffer into the mode:"list" message
+    // shape, decodeFitToInput adapts it to FitInput, and mapFit does the FIT→OpenBody mapping.
+    // The decoded FitInput is stored on the layer so a Subject-ID change re-maps without a
+    // re-decode. Never throws to the caller — returns a per-file {ok, message}.
+    async function ingestFitFile(file: File): Promise<{ ok: boolean; message: string }> {
+      const subject = subjectInput?.value.trim() || undefined;
+      let input: FitInput;
+      try {
+        input = await decodeFitToInput(await file.arrayBuffer());
+      } catch (err) {
+        console.error("[convert-tool] FIT decode failed:", err);
+        return {
+          ok: false,
+          message: `${file.name}: couldn't decode the FIT binary (${err instanceof Error ? err.message : String(err)}).`,
+        };
+      }
+      let mapped: { records: any[]; warnings: MapWarning[] };
+      try {
+        mapped = mapFit(input, { subject });
+      } catch (err) {
+        console.error("[convert-tool] FIT map failed:", err);
+        return {
+          ok: false,
+          message:
+            err instanceof MapperInputError
+              ? `${file.name}: ${err.message}`
+              : `${file.name}: couldn't map the decoded FIT (${err instanceof Error ? err.message : String(err)}).`,
+        };
+      }
+      const { records, warnings } = mapped;
+      if (!records.length) {
+        return {
+          ok: false,
+          message: `${file.name}: no session or samples found — is it an unmodified FIT activity file?`,
+        };
+      }
+      layers.push({
+        id: `layer-${++layerSeq}`,
+        label: `${SOURCE_LABEL.fit} · ${file.name}`,
+        source: "fit",
+        records,
+        enabled: true,
+        namespaced: false, // FIT ids are content-stable (fit-session, fit-hr, …), like the CSV sources
+        warnings,
+        fitInput: input, // keep the decoded shape so a Subject-ID change can re-map
+        fileName: file.name,
+      });
+      const realWarnings = warnings.filter((w) => w.code !== "default-subject");
+      return {
+        ok: true,
+        message: `${file.name}: parsed ${records.length} record${records.length === 1 ? "" : "s"} ` +
+          `from ${SOURCE_LABEL.fit}` +
           `${realWarnings.length ? ` (${realWarnings.length} warning${realWarnings.length === 1 ? "" : "s"})` : ""}.`,
       };
     }
@@ -888,6 +978,7 @@
       concept2: "endurance",
       thecrag: "endurance",
       fitbit: "endurance",
+      fit: "endurance",
       openbody: "json",
     };
     const srcKey = (source: string) => SRC_PALETTE[source] ?? "json";
@@ -1756,6 +1847,16 @@
             layer.records = mapFitbitTakeout(layer.fitbitFiles, { subject }).records;
           } catch (err) {
             console.error("[convert-tool] Fitbit re-map on subject change failed:", err);
+          }
+          continue;
+        }
+        // FIT re-maps from its stored decoded FitInput (binary source — no `text` to re-map).
+        if (layer.source === "fit") {
+          if (!layer.fitInput) continue;
+          try {
+            layer.records = mapFit(layer.fitInput, { subject }).records;
+          } catch (err) {
+            console.error("[convert-tool] FIT re-map on subject change failed:", err);
           }
           continue;
         }
