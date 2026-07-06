@@ -13,7 +13,16 @@
 //   stream parsing is intentionally out of scope for now.
 import { mapStrava, type LiveRecord, type ScalarOrTarget } from "@openbody/openbody-ts";
 
-export type SourceId = "hevy" | "hevy-measurements" | "strong" | "apple-health" | "strava";
+export type SourceId =
+  | "hevy"
+  | "hevy-measurements"
+  | "strong"
+  | "apple-health"
+  | "strava"
+  | "gpx"
+  | "tcx"
+  | "concept2"
+  | "thecrag";
 
 export const SOURCE_LABEL: Record<SourceId, string> = {
   hevy: "Hevy workout CSV",
@@ -21,6 +30,10 @@ export const SOURCE_LABEL: Record<SourceId, string> = {
   strong: "Strong workout CSV",
   "apple-health": "Apple Health export.xml",
   strava: "Strava activities.csv",
+  gpx: "GPX track",
+  tcx: "TCX activity",
+  concept2: "Concept2 season CSV",
+  thecrag: "theCrag logbook CSV",
 };
 
 /** Strength sources get the exercise-resolution + set-by-set preview; endurance sources
@@ -33,6 +46,12 @@ export const SOURCE_KIND: Record<SourceId, "strength" | "endurance" | "measureme
   strong: "strength",
   "apple-health": "endurance",
   strava: "endurance",
+  // GPX/TCX are GPS/telemetry tracks; Concept2 (erg rowing) and theCrag (climbing)
+  // are session-shaped with disciplines + distance/reps — all get the endurance rollup.
+  gpx: "endurance",
+  tcx: "endurance",
+  concept2: "endurance",
+  thecrag: "endurance",
 };
 
 // --- detection -------------------------------------------------------------------------
@@ -63,10 +82,15 @@ function sniffHeaderCells(line: string): string[] {
  */
 export function detectSource(fileName: string, text: string): SourceId | null {
   const head = text.slice(0, 8192).replace(/^\uFEFF/, "");
-  const looksXml = /\.xml$/i.test(fileName) || /^\s*</.test(head);
+  const looksXml =
+    /\.(xml|gpx|tcx)$/i.test(fileName) || /^\s*</.test(head);
   if (looksXml) {
-    // The <HealthData> root can sit after a long DTD in real exports; scan the whole text.
-    return text.includes("<HealthData") ? "apple-health" : null;
+    // Roots can sit after a long DTD/comment banner in real exports; scan the whole text.
+    // Order is by distinctiveness \u2014 each root element is unique to its format.
+    if (text.includes("<HealthData")) return "apple-health";
+    if (text.includes("<gpx")) return "gpx";
+    if (text.includes("<TrainingCenterDatabase")) return "tcx";
+    return null;
   }
   const cols = sniffHeaderCells(head.split(/\r?\n/, 1)[0] ?? "");
   const has = (name: string) => cols.includes(name);
@@ -84,6 +108,14 @@ export function detectSource(fileName: string, text: string): SourceId | null {
     return "hevy-measurements";
   if (has("workout name") && has("exercise name")) return "strong";
   if (has("activity id") && has("activity date")) return "strava";
+  // Concept2 Logbook season CSV: a `Log ID` key column plus the erg-specific
+  // `Stroke Rate/Cadence` metric — distinct from every other CSV above (it also has a
+  // `Date` and `Weight`, but no `weight_kg`/`fat_percent`/`*_in`/`*_cm`, so the
+  // hevy-measurements check never claims it first).
+  if (has("log id") && has("stroke rate/cadence")) return "concept2";
+  // theCrag climbing logbook CSV: `Route Name` + `Ascent Type` (the send/attempt outcome
+  // column) uniquely identify it; its date columns are `Ascent Date`/`Log Date`, not `date`.
+  if (has("route name") && has("ascent type")) return "thecrag";
   return null;
 }
 
