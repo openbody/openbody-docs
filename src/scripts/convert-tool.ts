@@ -62,10 +62,6 @@
     const downloadStrongBtn = document.getElementById("download-strong-btn") as HTMLButtonElement;
     const strongInfoEl = document.getElementById("strong-info") as HTMLElement;
     const emailCapture = document.getElementById("email-capture") as HTMLElement;
-    const emailForm = document.getElementById("email-form") as HTMLFormElement;
-    const emailInput = document.getElementById("email-input") as HTMLInputElement;
-    const emailStatus = document.getElementById("email-status") as HTMLElement;
-    const emailDismiss = document.getElementById("email-dismiss") as HTMLButtonElement;
 
     const layersEl = document.getElementById("layers") as HTMLElement;
 
@@ -1392,6 +1388,12 @@
         `${formatBytes(bytes)} · 🔒 built in your browser, nothing uploaded`;
       section.append(meta);
 
+      // Lay-verifiable proof of the "nothing uploaded" claim — complements the lock above,
+      // doesn't restate it. Kept small/secondary (muted), not a banner.
+      section.append(el("p", "ob-lean-export-verify",
+        "Don't take our word for it — open your browser's Network tab, or turn off Wi-Fi: " +
+        "the conversion still runs."));
+
       // Strong-CSV fidelity notes + omissions, tucked into a collapsible.
       if (hasStrength && lastStrong) {
         const det = el("details", "ob-lean-strong");
@@ -1598,13 +1600,15 @@
     function buildEcosystem() {
       const section = el("section", "ob-lean-eco ob-card");
       section.setAttribute("aria-label", "Take your data to the ecosystem");
-      section.append(el("h3", "ob-lean-eco-h", "Now visualize it →"));
+      section.append(el("h3", "ob-lean-eco-h", "It's yours to take with you →"));
       const p = el("p", "ob-lean-eco-p");
-      p.append(document.createTextNode("OpenBody is an open format other tools can read. Take your "));
+      p.append(document.createTextNode("Your "));
       p.append(el("code", undefined, "openbody.json"));
       p.append(document.createTextNode(
-        " to any OpenBody-compatible tool to chart, analyze, or store it — and re-import it " +
-        "here anytime. Your data isn't locked to this page or any one app. ",
+        " is a plain, inspectable file you own — not locked to this page. Re-import it here " +
+        "anytime, keep it as a backup, or open it in any text editor. It's an open format, so " +
+        "as more tools adopt it, taking your history elsewhere to chart, analyze, or store it " +
+        "is the direction. ",
       ));
       const a = el("a", "ob-lean-eco-link", "See the ecosystem →");
       (a as HTMLAnchorElement).href = "/ecosystem/";
@@ -1909,41 +1913,6 @@
       URL.revokeObjectURL(url);
     });
 
-    emailDismiss?.addEventListener("click", () => {
-      emailCapture.hidden = true;
-    });
-
-    emailForm?.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const email = emailInput.value.trim();
-      if (!email) return;
-      const submitBtn = emailForm.querySelector("button[type=submit]") as HTMLButtonElement;
-      submitBtn.disabled = true;
-      emailStatus.textContent = "Sending…";
-      emailStatus.className = "ob-email-status";
-      try {
-        // TODO(backend): /api/subscribe is a PLACEHOLDER. There is no server behind this yet —
-        // this site builds as static output for Cloudflare Pages, with no Worker / Pages
-        // Function / KV / D1 wired up. Implementing it is a founder-level decision (which
-        // mechanism, retention, unsubscribe, etc.), not something to fake here. Until it
-        // exists this request will fail (404), and we surface that honestly below instead of
-        // showing a fake success state.
-        const res = await fetch("/api/subscribe", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ email, source: "convert-tool" }),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        emailStatus.textContent = "Thanks — we'll let you know.";
-        emailStatus.className = "ob-email-status is-success";
-        emailForm.hidden = true;
-      } catch (err) {
-        console.warn("[convert-tool] /api/subscribe isn't wired up yet:", err);
-        emailStatus.textContent =
-          "Thanks for the interest — signups aren't actually wired up in this early version, " +
-          "so this didn't go anywhere yet. Check back soon.";
-        emailStatus.className = "ob-email-status is-pending";
-      } finally {
-        submitBtn.disabled = false;
-      }
-    });
+    // The "more apps?" card is a plain, always-honest mailto — no form, no backend, no fake
+    // signup state (this site builds as static output; there's no Worker/Function to receive a
+    // POST). handleFiles just unhides #email-capture after a successful parse.
