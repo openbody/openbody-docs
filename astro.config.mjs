@@ -98,7 +98,7 @@ export default defineConfig({
           label: "The standard",
           items: [
             { label: "Overview", link: "/specification/" },
-            { label: "SPEC.md", link: "/specification/spec/" },
+            { label: "Specification", link: "/specification/spec/" },
             { label: "JSON Schema", link: "/specification/schema/" },
             { label: "Changelog", link: "/specification/changelog/" },
           ],
