@@ -81,6 +81,14 @@ import { Aside } from "@astrojs/starlight/components";
 
     <p id="status" class="ob-status-msg" role="status" aria-live="polite" hidden></p>
 
+    {/* Parse progress (OB-97): an animated indeterminate bar shown while a file is read +
+        parsed. The heavy parse runs in a Web Worker, so this keeps animating even on a
+        multi-hundred-MB Apple Health export — visible proof the tab is alive, not frozen. */}
+    <div id="ob-parse-progress" class="ob-parse-progress" role="status" aria-live="polite" hidden>
+      <div class="ob-parse-bar" aria-hidden="true"><div class="ob-parse-bar-fill"></div></div>
+      <p id="ob-parse-label" class="ob-parse-label"></p>
+    </div>
+
     <p id="subject-note" class="ob-note" role="note" hidden></p>
 
     <div id="layers" class="ob-layers" hidden></div>
@@ -530,6 +538,59 @@ import { Aside } from "@astrojs/starlight/components";
     .ob-status-msg.is-error {
       border-color: #b3261e;
       color: #b3261e;
+    }
+
+    /* Parse progress (OB-97): an indeterminate, animated bar + a status line. Shown while a
+       file is read + parsed; because the parse runs in a Web Worker the main thread stays free
+       to animate this, so the tab visibly keeps working on a large Apple Health export instead
+       of appearing frozen. */
+    .ob-parse-progress {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+    .ob-parse-progress[hidden] {
+      display: none;
+    }
+    .ob-parse-bar {
+      position: relative;
+      height: 6px;
+      border-radius: 999px;
+      background: var(--sl-color-gray-6);
+      overflow: hidden;
+    }
+    .ob-parse-bar-fill {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: -40%;
+      width: 40%;
+      border-radius: 999px;
+      background: var(--sl-color-accent);
+      animation: ob-parse-slide 1.15s ease-in-out infinite;
+    }
+    @keyframes ob-parse-slide {
+      0% { left: -40%; }
+      100% { left: 100%; }
+    }
+    .ob-parse-label {
+      margin: 0;
+      font-family: var(--sl-font-mono);
+      font-size: var(--sl-text-sm);
+      color: var(--sl-color-gray-2);
+    }
+    /* Reduced motion: swap the sliding bar for a full-width opacity pulse — still clearly
+       "working", no translation. */
+    @media (prefers-reduced-motion: reduce) {
+      .ob-parse-bar-fill {
+        left: 0;
+        width: 100%;
+        animation: ob-parse-pulse 1.4s ease-in-out infinite;
+      }
+      @keyframes ob-parse-pulse {
+        0%, 100% { opacity: 0.35; }
+        50% { opacity: 1; }
+      }
     }
 
     .ob-resolution {
