@@ -43,8 +43,8 @@ jobs:
       # 2. The CANONICAL standard repo, checked out as a sibling so the sync step
       #    (scripts/sync-spec.mjs) can copy SPEC.md / CHANGELOG.md / schema / conformance
       #    at build time. The docs repo never holds a hand-edited fork of the spec.
-      #    NOTE: `openbody/openbody` is currently private — this checkout needs a token with
-      #    read access to it (STANDARD_REPO_TOKEN). See DEPLOY.md.
+      #    NOTE: `openbody/openbody` is now public, so this checkout no longer requires a token;
+      #    STANDARD_REPO_TOKEN is retained for higher API rate limits. See DEPLOY.md.
       - name: Checkout openbody standard
         uses: actions/checkout@v4
         with:
@@ -56,10 +56,10 @@ jobs:
       #    `"@openbody/openbody-ts": "file:../openbody-ts"` (the same local-dev pin used on
       #    a machine with both repos checked out side by side) resolves in CI too — no
       #    package.json change needed for this to work in either environment.
-      #    NOTE: `openbody/openbody-ts` is currently private. Reuses STANDARD_REPO_TOKEN
-      #    (its fine-grained PAT's repo access list now also includes openbody-ts, alongside
-      #    openbody) rather than a second secret — one credential covering both private
-      #    checkouts this workflow needs. See README.md "Convert tool" section.
+      #    NOTE: `openbody/openbody-ts` is now public, so no token is required; it reuses
+      #    STANDARD_REPO_TOKEN (whose fine-grained PAT covers openbody-ts alongside openbody)
+      #    rather than a second secret — one credential across the sibling
+      #    checkouts this workflow uses. See README.md "Convert tool" section.
       - name: Checkout openbody-ts
         uses: actions/checkout@v4
         with:
@@ -71,7 +71,7 @@ jobs:
       #    sync-crosswalk` (see the build step below) can vendor the exercise-name
       #    resolution data (canonical registry name index + per-app alias tables) via its
       #    default relative path (`../openbody-registry`). Same STANDARD_REPO_TOKEN reuse
-      #    as the other private checkouts (the fine-grained PAT's repo access list must
+      #    as the other now-public checkouts (the fine-grained PAT's repo access list must
       #    also include openbody-registry).
       - name: Checkout openbody-registry
         uses: actions/checkout@v4
