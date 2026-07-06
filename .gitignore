@@ -21,3 +21,6 @@ src/generated/
 
 # logs
 npm-debug.log*
+
+# local agent context (never commit into a public repo)
+.claude/

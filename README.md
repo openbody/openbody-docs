@@ -118,7 +118,13 @@ secrets).
 
 ## Licensing
 
-The OpenBody **specification** is **OWFa 1.0**; **reference code** is **Apache-2.0**;
-**registry data** is **CC0**. This docs site's own prose describes those artifacts; see
-[`/licensing/`](https://openbody.dev/licensing/). “OpenBody” is a vendor-neutral standard
-stewarded by Thabit Labs.
+This repo's **site code** (the Astro/TypeScript that builds openbody.dev) is licensed
+**Apache-2.0** — see [`LICENSE`](./LICENSE). The mirrored **specification** content under
+`src/content/docs/specification/` is generated from the canonical
+[`openbody`](https://github.com/openbody/openbody) repo and remains **OWFa 1.0** as governed
+there — this repo does not relicense it.
+
+For context, the three-repo license model is: the OpenBody **specification** is **OWFa 1.0**;
+**reference code** is **Apache-2.0**; **registry data** is **CC0**. This docs site's own prose
+describes those artifacts; see [`/licensing/`](https://openbody.dev/licensing/). “OpenBody”
+is a vendor-neutral standard stewarded by Thabit Labs.
