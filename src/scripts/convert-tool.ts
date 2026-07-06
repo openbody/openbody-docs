@@ -3,6 +3,10 @@
       mapHevyMeasurements,
       mapStrong,
       mapAppleHealth,
+      mapGpx,
+      mapTcx,
+      mapConcept2,
+      mapTheCrag,
       mapOpenBodyToStrong,
       MapperInputError,
       DEFAULT_SUBJECT,
@@ -577,7 +581,8 @@
 
     const SUPPORTED_HINT =
       "Supported: Hevy workout CSV, Hevy measurement_data.csv, Strong CSV, " +
-      "Apple Health export.xml, Strava activities.csv.";
+      "Apple Health export.xml, Strava activities.csv, GPX/TCX tracks, " +
+      "Concept2 season CSV, theCrag logbook CSV.";
 
     function mapForSource(
       source: SourceId,
@@ -593,6 +598,13 @@
         // mapStravaActivitiesCsv is a docs-only adapter (fans out per-row mapStrava calls),
         // not one of the package's mappers — it already returns a plain record array.
         case "strava": return { records: mapStravaActivitiesCsv(text, opts.subject), warnings: [] };
+        // GPX/TCX (XML tracks) + Concept2/theCrag (CSV): each mapper already consumes the raw
+        // export text and returns { records, warnings }, so no adapter — just pass it through
+        // with the shared subject option, exactly like the Hevy/Strong/Apple Health mappers.
+        case "gpx": return mapGpx(text, opts);
+        case "tcx": return mapTcx(text, opts);
+        case "concept2": return mapConcept2(text, opts);
+        case "thecrag": return mapTheCrag(text, opts);
       }
     }
 
@@ -772,13 +784,18 @@
     // =====================================================================================
 
     // Source → validated categorical palette key (the --ob-src-* CSS vars). Both Hevy exports
-    // share one identity; an openbody.json re-import gets the neutral "json" colour.
+    // share one identity; the four endurance-track sources (GPX/TCX/Concept2/theCrag) share
+    // the "endurance" identity; an openbody.json re-import gets the neutral "json" colour.
     const SRC_PALETTE: Record<string, string> = {
       hevy: "hevy",
       "hevy-measurements": "hevy",
       strong: "strong",
       "apple-health": "apple",
       strava: "strava",
+      gpx: "endurance",
+      tcx: "endurance",
+      concept2: "endurance",
+      thecrag: "endurance",
       openbody: "json",
     };
     const srcKey = (source: string) => SRC_PALETTE[source] ?? "json";

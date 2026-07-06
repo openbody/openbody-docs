@@ -21,7 +21,7 @@ import { Aside } from "@astrojs/starlight/components";
   frontmatter={{
     title: "Convert your workout data",
     description:
-      "Upload a Hevy, Strong, Apple Health, or Strava export and see it parsed into portable OpenBody JSON, entirely in your browser. No signup, no server, no upload.",
+      "Upload a Hevy, Strong, Apple Health, Strava, GPX, TCX, Concept2, or theCrag export and see it parsed into portable OpenBody JSON, entirely in your browser. No signup, no server, no upload.",
     tableOfContents: false,
   }}
 >
@@ -42,7 +42,7 @@ import { Aside } from "@astrojs/starlight/components";
     <a href="/specification/">specification</a>), and this converter is a demo tool, not a
     finished product. It reads the export formats below via the reference mappers in
     <a href="https://github.com/openbody/openbody-ts">openbody-ts</a>; each card says
-    exactly what is and isn't read. More formats (FIT files, per-activity GPX) are planned;
+    exactly what is and isn't read. More formats (FIT files, Fitbit exports) are planned;
     see the <a href="/mapping/">mapping guides</a> for the mappings that exist in the
     reference implementation.
   </Aside>
@@ -60,7 +60,7 @@ import { Aside } from "@astrojs/starlight/components";
         accept=".csv,.xml,.json,text/csv,text/xml,application/xml,application/json"
       />
       <span id="ob-dropzone-title" class="ob-dropzone-title">Choose one or more export files, or drag them here</span>
-      <span class="ob-dropzone-sub">Hevy workout CSV · Hevy measurement CSV · Strong CSV · Apple Health export.xml · Strava activities.csv · an OpenBody JSON you exported earlier</span>
+      <span class="ob-dropzone-sub">Hevy workout CSV · Hevy measurement CSV · Strong CSV · Apple Health export.xml · Strava activities.csv · GPX / TCX track · Concept2 season CSV · theCrag logbook CSV · an OpenBody JSON you exported earlier</span>
       <span class="ob-dropzone-sub">Add files from several apps and they merge into one history. Nothing is uploaded — it all runs in your browser.</span>
     </label>
 
@@ -179,6 +179,53 @@ import { Aside } from "@astrojs/starlight/components";
         Summary per activity only: sport, date, moving/elapsed time, distance. The GPS,
         heart-rate, and power streams (the GPX/FIT files in the same archive) are coming
         later.
+      </p>
+    </div>
+    <div class="ob-source-card">
+      <p class="ob-source-name">GPX — track file</p>
+      <p class="ob-source-how">
+        Export a <code>.gpx</code> from Runkeeper, Komoot, AllTrails, Ride with GPS, or any
+        other GPX 1.0/1.1 exporter.
+      </p>
+      <p class="ob-source-what">
+        The full GPS track becomes a multi-channel <code>location</code> stream (lat/lon/alt),
+        with heart-rate, cadence, and power streams when the file carries them — plus one
+        session, its discipline read from the track type.
+      </p>
+    </div>
+    <div class="ob-source-card">
+      <p class="ob-source-name">TCX — activity file</p>
+      <p class="ob-source-how">
+        Export a <code>.tcx</code> from Garmin Connect, Polar legacy, MapMyRun, or any other
+        TCX v2 exporter.
+      </p>
+      <p class="ob-source-what">
+        One session per activity, with lap structure preserved as work units (time, distance,
+        calories, per-lap heart-rate) and trackpoint heart-rate/cadence/power/GPS streams.
+      </p>
+    </div>
+    <div class="ob-source-card">
+      <p class="ob-source-name">Concept2 — season CSV</p>
+      <p class="ob-source-how">
+        <a href="https://log.concept2.com">log.concept2.com</a> → your logbook → export the
+        season CSV (RowErg, SkiErg, BikeErg).
+      </p>
+      <p class="ob-source-what">
+        One session per piece: fixed distance/time work, interval workouts recovered as blocks
+        with rest, stroke rate and watts as intensity, and an average-heart-rate measurement
+        per workout.
+      </p>
+    </div>
+    <div class="ob-source-card">
+      <p class="ob-source-name">theCrag — logbook CSV</p>
+      <p class="ob-source-how">
+        <a href="https://www.thecrag.com">thecrag.com</a> → Logbook → Action → Export logbook
+        as CSV.
+      </p>
+      <p class="ob-source-what">
+        Ascents grouped into a session per date and crag, one reps-scored work unit each, with
+        route/ascent grade, send-vs-attempt outcome, and climbing style (boulder, sport, trad,
+        top-rope).
       </p>
     </div>
   </div>
@@ -905,6 +952,7 @@ import { Aside } from "@astrojs/starlight/components";
       --ob-src-strong: #e3672f;
       --ob-src-apple: #25a67d;
       --ob-src-strava: #b67f14;
+      --ob-src-endurance: #9a7bd0;
       --ob-src-json: #be6e9c;
     }
     :root[data-theme="light"] {
@@ -912,6 +960,7 @@ import { Aside } from "@astrojs/starlight/components";
       --ob-src-strong: #d55e00;
       --ob-src-apple: #009e73;
       --ob-src-strava: #e69f00;
+      --ob-src-endurance: #7d55c7;
       --ob-src-json: #cc79a7;
     }
 
