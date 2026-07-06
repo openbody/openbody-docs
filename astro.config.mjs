@@ -56,6 +56,7 @@ export default defineConfig({
           label: "Your data",
           items: [
             { label: "Convert your data", link: "/tools/convert/", badge: { text: "beta", variant: "caution" } },
+            { label: "What you just got", link: "/your-data/" },
             { label: "OpenBody in five minutes", link: "/five-minutes/" },
           ],
         },

@@ -1,0 +1,59 @@
+---
+title: What you just got
+description: You converted your data and downloaded openbody.json. Here's what that file actually is, in plain terms, and a few useful things to do with it.
+---
+
+import { Aside, LinkCard, CardGrid } from '@astrojs/starlight/components';
+
+You dropped an export from a fitness app into the converter, and a file called
+`openbody.json` landed in your downloads. Here's what that file actually is — and why
+it's worth keeping.
+
+## It's just your history, written down plainly
+
+`openbody.json` is a plain, human-readable file that lists your workouts and
+measurements — the runs, lifts, rides, climbs, heart-rate readings, and body
+measurements the converter found in your export. It isn't an app, and it isn't locked to
+anything. It's text you can open, read, copy, and move around freely. Nothing about it
+depends on OpenBody, on the app you exported from, or on this website still being here
+tomorrow.
+
+If you open it in any text editor, you'll see readable entries — each one a workout or a
+measurement, with its date, what it was, and the numbers that go with it. A single reading
+looks about like this:
+
+```json
+{ "type": "heart-rate", "value": 61, "unit": "bpm", "startTime": "2026-06-14T07:02:00Z" }
+```
+
+That's the whole idea: no mystery format, no secret database. Just your data, laid out so
+a person (or any other tool) can read it.
+
+## Why a portable copy matters
+
+Your training history usually lives inside one app — and that means it can move, change,
+or vanish on someone else's terms. A portable copy is the opposite: it's *yours*, sitting
+in a plain file you control. Apps come and go, subscriptions lapse, companies get
+acquired and shut things down. The copy you just downloaded outlives any single one of
+them.
+
+## What you can do with it now
+
+<CardGrid>
+  <LinkCard title="Keep it as a backup" description="Tuck openbody.json somewhere safe — a folder, a drive, cloud storage. It's a snapshot of your history that no app can take away." />
+  <LinkCard title="Come back and top it up" href="/tools/convert/" description="Export again later and re-import it here anytime — including this openbody.json itself — to pick up where you left off and merge in what's new." />
+  <LinkCard title="Open and read it" description="Double-click it into any text editor to see exactly what's inside. It's plain text, so there's nothing to install and nothing hidden." />
+  <LinkCard title="Take it elsewhere" description="It's an open format, so as more tools learn to read OpenBody, this same file can travel with you instead of starting over." />
+</CardGrid>
+
+<Aside type="tip" title="That's really all you need">
+For most people, the takeaway is simple: you now own a portable copy of your training
+history, and you can re-import it here whenever you want. Everything below is optional.
+</Aside>
+
+---
+
+Curious what's actually inside? **[See the shape of the data →](/five-minutes/)** walks
+through real records — a measurement, a set, a run, a full session — in about five
+minutes. And if you want the exact, technical definition, the
+[specification](/specification/) has every detail.
