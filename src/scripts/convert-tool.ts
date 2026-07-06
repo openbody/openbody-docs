@@ -1,31 +1,26 @@
     import {
-      mapHevy,
-      mapHevyMeasurements,
-      mapStrong,
-      mapAppleHealth,
-      mapGpx,
-      mapTcx,
-      mapConcept2,
-      mapTheCrag,
       mapFitbitTakeout,
       mapFit,
       mapOpenBodyToStrong,
       MapperInputError,
       DEFAULT_SUBJECT,
-      validate,
-      parseLossless,
-      type MapOptions,
       type ToStrongResult,
       type MapWarning,
       type FitbitFile,
       type FitInput,
     } from "@openbody/openbody-ts";
-    import { mergeLayers, toPlainNumbers, type MergeStats } from "../components/merge";
+    // The heavy text-mapping step (Apple Health / CSV / OpenBody-JSON parse) lives in a pure,
+    // DOM-free module so it can run in a Web Worker (default) or on the main thread (fallback).
+    import {
+      mapTextFile,
+      type MapTextRequest,
+      type MapTextResult,
+    } from "../components/convert-map";
+    import { mergeLayers, type MergeStats } from "../components/merge";
     import { summarizeSessions, formatSetLine, type SessionSummary } from "../lib/hevy/summarize";
     import {
       detectSource,
       isFitbitFileName,
-      mapStravaActivitiesCsv,
       summarizeEndurance,
       formatHoursMinutes,
       SOURCE_LABEL,
@@ -592,64 +587,126 @@
       "Apple Health export.xml, Strava activities.csv, GPX/TCX tracks, FIT activity files, " +
       "Concept2 season CSV, theCrag logbook CSV, Fitbit (Google Takeout) JSON.";
 
-    function mapForSource(
-      source: SourceId,
-      text: string,
-      opts: MapOptions,
-    ): { records: any[]; warnings: MapWarning[] } {
-      switch (source) {
-        case "hevy": return mapHevy(text, opts);
-        // Hevy's body-measurement export → point-in-time Measurement records (no sessions).
-        case "hevy-measurements": return mapHevyMeasurements(text, opts);
-        case "strong": return mapStrong(text, opts);
-        case "apple-health": return mapAppleHealth(text, opts);
-        // mapStravaActivitiesCsv is a docs-only adapter (fans out per-row mapStrava calls),
-        // not one of the package's mappers — it already returns a plain record array.
-        case "strava": return { records: mapStravaActivitiesCsv(text, opts.subject), warnings: [] };
-        // GPX/TCX (XML tracks) + Concept2/theCrag (CSV): each mapper already consumes the raw
-        // export text and returns { records, warnings }, so no adapter — just pass it through
-        // with the shared subject option, exactly like the Hevy/Strong/Apple Health mappers.
-        case "gpx": return mapGpx(text, opts);
-        case "tcx": return mapTcx(text, opts);
-        case "concept2": return mapConcept2(text, opts);
-        case "thecrag": return mapTheCrag(text, opts);
-        // Fitbit is many-files→one-call: it's batched in handleFiles (ingestFitbitBatch) and
-        // never routed through this per-file path. Guard so the exhaustive switch stays total.
-        case "fitbit":
-          throw new MapperInputError(
-            "fitbit", "Fitbit Takeout is mapped as a batch of files, not one file at a time",
-          );
-        // FIT is binary: decoded + mapped on its own path (ingestFitFile), never routed through
-        // this text mapper. Guard so the exhaustive switch stays total.
-        case "fit":
-          throw new MapperInputError(
-            "fit", "FIT is a binary source, decoded and mapped on its own path, not as text",
-          );
+    // --- off-main-thread parse (OB-97) --------------------------------------------------
+    // The heavy XML/CSV/JSON map (mapTextFile) runs in a Web Worker so the tab stays
+    // responsive on large exports — an Apple Health export.xml can be hundreds of MB, and the
+    // old synchronous map on the main thread froze the tab (no paint, spinner stalled). The
+    // worker is created lazily on first use and reused. If it can't be created OR errors at
+    // runtime (bundling/eval failure), we permanently fall back to running mapTextFile on the
+    // main thread so a parse still completes — just without the responsiveness win.
+    let mapWorker: Worker | null = null;
+    let workerBroken = false;
+    let workerSeq = 0;
+    const workerPending = new Map<number, (r: MapTextResult) => void>();
+
+    function ensureWorker(): Worker | null {
+      if (workerBroken) return null;
+      if (mapWorker) return mapWorker;
+      try {
+        mapWorker = new Worker(new URL("./convert-worker.ts", import.meta.url), { type: "module" });
+        mapWorker.addEventListener(
+          "message",
+          (e: MessageEvent<{ id: number; result: MapTextResult }>) => {
+            const done = workerPending.get(e.data.id);
+            if (done) {
+              workerPending.delete(e.data.id);
+              done(e.data.result);
+            }
+          },
+        );
+        return mapWorker;
+      } catch (err) {
+        console.warn("[convert-tool] Web Worker unavailable, parsing on the main thread:", err);
+        workerBroken = true;
+        return null;
       }
+    }
+
+    /**
+     * Map one uploaded text file, off the main thread when possible. Resolves with the same
+     * {@link MapTextResult} whether it ran in the worker or the main-thread fallback, so the
+     * caller never has to care which path executed.
+     */
+    function runMapText(req: MapTextRequest): Promise<MapTextResult> {
+      const worker = ensureWorker();
+      if (!worker) return Promise.resolve(mapTextFile(req));
+      return new Promise<MapTextResult>((resolve) => {
+        const id = ++workerSeq;
+        let settled = false;
+        const finish = (r: MapTextResult) => {
+          if (settled) return;
+          settled = true;
+          worker.removeEventListener("error", onError);
+          resolve(r);
+        };
+        // A worker load/eval error (e.g. a bundling problem) fires here — mark it broken and
+        // finish this call on the main thread so the upload never hangs.
+        const onError = (ev: ErrorEvent) => {
+          console.warn("[convert-tool] worker errored, falling back to main-thread parse:", ev.message);
+          workerBroken = true;
+          workerPending.delete(id);
+          finish(mapTextFile(req));
+        };
+        worker.addEventListener("error", onError);
+        workerPending.set(id, finish);
+        worker.postMessage({ id, ...req });
+      });
+    }
+
+    // --- progress indicator (OB-97) -----------------------------------------------------
+    // A visible, animated indeterminate bar shown while a file is being read + parsed. Because
+    // the parse runs in the worker, this bar keeps animating on the (idle) main thread even
+    // for a multi-hundred-MB Apple Health export — proof the tab is alive, not hung. In the
+    // main-thread fallback the bar still paints before the (blocking) parse and clears after.
+    const parseProgressEl = document.getElementById("ob-parse-progress") as HTMLElement | null;
+    const parseLabelEl = document.getElementById("ob-parse-label") as HTMLElement | null;
+
+    function showParseProgress(label: string) {
+      if (parseLabelEl) parseLabelEl.textContent = label;
+      if (parseProgressEl) parseProgressEl.hidden = false;
+    }
+    function hideParseProgress() {
+      if (parseProgressEl) parseProgressEl.hidden = true;
+    }
+    /**
+     * Yield so the browser can paint the progress UI before heavy work. Prefer a real
+     * animation frame (best paint timing when the tab is visible), but ALWAYS fall back to a
+     * short timeout — requestAnimationFrame is paused in a hidden/background tab, and relying
+     * on it alone would hang the whole ingest until the tab was refocused.
+     */
+    function nextFrame(): Promise<void> {
+      return new Promise((resolve) => {
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          resolve();
+        };
+        requestAnimationFrame(finish);
+        setTimeout(finish, 32);
+      });
+    }
+
+    // Files at or above this size get a "large export, this can take a moment" heads-up and,
+    // for XML, the Apple-Health-specific copy. Informational only — never a hard block.
+    const LARGE_FILE_BYTES = 25 * 1024 * 1024; // 25 MB
+
+    /** The per-file progress line, tailored for the large Apple Health export worst case. */
+    function parseLabelFor(file: File, index: number, total: number): string {
+      const prefix = total > 1 ? `File ${index} of ${total} — ` : "";
+      const big = file.size >= LARGE_FILE_BYTES;
+      if (big && /\.xml$/i.test(file.name)) {
+        return `${prefix}Parsing your Apple Health export (${formatBytes(file.size)}) — ` +
+          `large export, this can take a moment…`;
+      }
+      if (big) return `${prefix}Parsing ${file.name} (${formatBytes(file.size)})…`;
+      return `${prefix}Parsing ${file.name}…`;
     }
 
     // --- ingest: turn one uploaded file into a source layer -----------------------------
     // Detects an OpenBody JSON re-import (a JSON array of records) OR an app export, maps it,
     // and pushes a layer. Never throws to the caller — returns a per-file {ok, message}. The
     // Subject-ID field applies to EVERY file so cross-source records share a subject.
-
-    /** Recognize an OpenBody document: a JSON array whose items carry a `recordType`. */
-    function looksLikeOpenBody(fileName: string, text: string): any[] | null {
-      if (!/\.json$/i.test(fileName) && !text.trimStart().startsWith("[")) return null;
-      let parsed: unknown;
-      try {
-        // parseLossless is robust (RFC-strict, __proto__-safe); toPlainNumbers coerces its
-        // LosslessNumber values to plain JS numbers so records validate, dedup and export.
-        parsed = toPlainNumbers(parseLossless(text));
-      } catch {
-        return null;
-      }
-      if (!Array.isArray(parsed) || parsed.length === 0) return null;
-      const looksRecord = parsed.some(
-        (r) => r && typeof r === "object" && typeof (r as any).recordType === "string",
-      );
-      return looksRecord ? (parsed as any[]) : null;
-    }
 
     async function ingestFile(file: File): Promise<{ ok: boolean; message: string }> {
       // Read the header bytes once, up front, to classify BINARY containers before the text
@@ -682,33 +739,24 @@
         return ingestFitFile(file);
       }
 
+      // file.text() is async and off-thread (non-blocking); the CPU-heavy classify + map that
+      // follows is what used to freeze the tab, so it runs via runMapText (Web Worker, with a
+      // main-thread fallback). The worker keeps the UI painting the animated progress bar.
       const text = await file.text();
       const subject = subjectInput?.value.trim() || undefined;
+      const res = await runMapText({ fileName: file.name, text, subject });
 
-      // OpenBody JSON re-import (the round-trip path): validate each record; surface — never
-      // silently drop — any that fail.
-      const obRecords = looksLikeOpenBody(file.name, text);
-      if (obRecords) {
-        const valid: any[] = [];
-        let invalid = 0;
-        const reasons: string[] = [];
-        for (const r of obRecords) {
-          if (validate(r).valid) valid.push(r);
-          else {
-            invalid++;
-            const e = validate(r).errors;
-            if (reasons.length < 1 && e) reasons.push(e);
-          }
-        }
+      // OpenBody JSON re-import (the round-trip path): validation happened in the worker;
+      // surface — never silently drop — any records that failed.
+      if (res.kind === "openbody") {
+        const { valid, invalidCount, firstReason } = res;
         if (valid.length === 0) {
           return {
             ok: false,
             message: `${file.name}: looks like OpenBody JSON but no records validated` +
-              `${invalid ? ` (${invalid} failed)` : ""}.`,
+              `${invalidCount ? ` (${invalidCount} failed)` : ""}.`,
           };
         }
-        // Unify subject across layers when one is given, so cross-source dedup can match.
-        if (subject) for (const r of valid) r.subject = subject;
         layers.push({
           id: `layer-${++layerSeq}`,
           label: `OpenBody JSON (re-import) · ${file.name}`,
@@ -717,40 +765,35 @@
           enabled: true,
           namespaced: false, // re-imports carry authoritative ids already
           warnings: [],
-          note: invalid
-            ? `${invalid} record${invalid === 1 ? "" : "s"} failed validation and ` +
-              `${invalid === 1 ? "was" : "were"} skipped (not counted, not exported).` +
-              `${reasons[0] ? ` First error: ${reasons[0]}` : ""}`
+          note: invalidCount
+            ? `${invalidCount} record${invalidCount === 1 ? "" : "s"} failed validation and ` +
+              `${invalidCount === 1 ? "was" : "were"} skipped (not counted, not exported).` +
+              `${firstReason ? ` First error: ${firstReason}` : ""}`
             : undefined,
-          invalidCount: invalid,
+          invalidCount,
           fileName: file.name,
         });
         return {
           ok: true,
           message: `${file.name}: re-imported ${valid.length} OpenBody record` +
-            `${valid.length === 1 ? "" : "s"}${invalid ? `, skipped ${invalid} invalid` : ""}.`,
+            `${valid.length === 1 ? "" : "s"}${invalidCount ? `, skipped ${invalidCount} invalid` : ""}.`,
         };
       }
 
       // App export path.
-      const source = detectSource(file.name, text);
-      if (!source) {
+      if (res.kind === "unrecognized") {
         return { ok: false, message: `${file.name}: not a recognized export. ${SUPPORTED_HINT}` };
       }
-      let mapped: { records: any[]; warnings: MapWarning[] };
-      try {
-        mapped = mapForSource(source, text, { subject });
-      } catch (err) {
-        console.error("[convert-tool] parse failed:", err);
+      if (res.kind === "error") {
+        console.error("[convert-tool] parse failed:", res.message);
         return {
           ok: false,
-          message:
-            err instanceof MapperInputError
-              ? `${file.name}: ${err.message}`
-              : `${file.name}: couldn't parse (${err instanceof Error ? err.message : String(err)}).`,
+          message: res.isMapperInputError
+            ? `${file.name}: ${res.message}`
+            : `${file.name}: couldn't parse (${res.message}).`,
         };
       }
-      const { records, warnings } = mapped;
+      const { source, records, warnings } = res;
       const kind = SOURCE_KIND[source];
       const sessionCount = records.filter((r: any) => r.recordType === "Session").length;
       if (!records.length || (kind === "strength" && sessionCount === 0)) {
@@ -921,7 +964,14 @@
         rest.push(file);
       }
 
+      const total = rest.length + (fitbitBatch.length > 0 ? 1 : 0);
+      let step = 0;
       for (const file of rest) {
+        step++;
+        // Show + paint the animated progress line BEFORE the read/parse so the tab is visibly
+        // working (and, in the worker path, keeps animating through the whole parse).
+        showParseProgress(parseLabelFor(file, step, total));
+        await nextFrame();
         try {
           results.push(await ingestFile(file));
         } catch (err) {
@@ -932,8 +982,16 @@
           });
         }
       }
-      if (fitbitBatch.length > 0) results.push(ingestFitbitBatch(fitbitBatch));
+      if (fitbitBatch.length > 0) {
+        showParseProgress(
+          `${total > 1 ? `File ${total} of ${total} — ` : ""}Parsing ${fitbitBatch.length} ` +
+            `Fitbit file${fitbitBatch.length === 1 ? "" : "s"}…`,
+        );
+        await nextFrame();
+        results.push(ingestFitbitBatch(fitbitBatch));
+      }
 
+      hideParseProgress();
       renderAll();
       const okCount = results.filter((r) => r.ok).length;
       const errCount = results.length - okCount;
@@ -1835,16 +1893,26 @@
     });
 
     subjectInput?.addEventListener("change", () => {
+      void remapLayersForSubject();
+    });
+
+    // Subject applies to ALL layers: re-map app layers from their stored text (the mapper's
+    // own, canonical way to stamp a subject) and re-stamp OpenBody re-imports directly. Text
+    // layers re-map through the SAME off-main-thread path as the initial upload (runMapText),
+    // so changing the subject on a large Apple Health layer doesn't re-freeze the tab. FIT and
+    // Fitbit re-map from their stored decoded/batch inputs (small — kept synchronous).
+    async function remapLayersForSubject() {
       if (layers.length === 0) return;
       const subject = subjectInput.value.trim() || undefined;
-      // Subject applies to ALL layers: re-map app layers from their stored text (the mapper's
-      // own, canonical way to stamp a subject) and re-stamp OpenBody re-imports directly.
+      const hasBigText = layers.some(
+        (l) => l.text != null && l.text.length >= LARGE_FILE_BYTES,
+      );
+      if (hasBigText) showParseProgress("Re-tagging your records with the new subject id…");
       for (const layer of layers) {
         if (layer.source === "openbody") {
           if (subject) for (const r of layer.records) r.subject = subject;
           continue;
         }
-        // Fitbit re-maps from its stored BATCH of files (many-files→one-call), not `text`.
         if (layer.source === "fitbit") {
           if (!layer.fitbitFiles) continue;
           try {
@@ -1854,7 +1922,6 @@
           }
           continue;
         }
-        // FIT re-maps from its stored decoded FitInput (binary source — no `text` to re-map).
         if (layer.source === "fit") {
           if (!layer.fitInput) continue;
           try {
@@ -1865,14 +1932,15 @@
           continue;
         }
         if (!layer.text) continue;
-        try {
-          layer.records = mapForSource(layer.source as SourceId, layer.text, { subject }).records;
-        } catch (err) {
-          console.error("[convert-tool] re-map on subject change failed:", err);
+        const res = await runMapText({ fileName: layer.fileName, text: layer.text, subject });
+        if (res.kind === "source") layer.records = res.records;
+        else if (res.kind === "error") {
+          console.error("[convert-tool] re-map on subject change failed:", res.message);
         }
       }
+      hideParseProgress();
       renderAll();
-    });
+    }
 
     dropZone?.addEventListener("dragover", (e) => {
       e.preventDefault();
