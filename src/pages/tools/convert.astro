@@ -103,26 +103,11 @@ import { Aside } from "@astrojs/starlight/components";
     <div id="strong-info" class="ob-strong-info" hidden></div>
 
     <div id="email-capture" class="ob-email-card" hidden>
-      <form id="email-form">
-        <p class="ob-email-title">Want to know when more apps are supported?</p>
-        <p class="ob-email-sub">
-          Optional — totally skippable. We'll only email about new source formats for this
-          tool and major OpenBody milestones.
-        </p>
-        <div class="ob-email-row">
-          <input
-            id="email-input"
-            type="email"
-            name="email"
-            placeholder="you@example.com"
-            required
-            aria-label="Email address"
-          />
-          <button type="submit" class="ob-btn ob-btn-secondary">Notify me</button>
-          <button id="email-dismiss" type="button" class="ob-btn ob-btn-ghost">No thanks</button>
-        </div>
-        <p id="email-status" class="ob-email-status" role="status" aria-live="polite"></p>
-      </form>
+      <p class="ob-email-title">Want to know when more apps are supported?</p>
+      <p class="ob-email-sub">
+        <a href="mailto:contact@openbody.dev?subject=OpenBody%20convert%20—%20notify%20me">Email us</a>
+        and we'll drop you a line when new source formats land. No list, no signup — just a reply.
+      </p>
     </div>
   </div>
 
@@ -940,33 +925,8 @@ import { Aside } from "@astrojs/starlight/components";
       font-weight: 600;
     }
     .ob-email-sub {
-      margin: 0 0 0.75rem;
+      margin: 0;
       font-size: var(--sl-text-sm);
-      color: var(--sl-color-gray-3);
-    }
-    .ob-email-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-      align-items: center;
-    }
-    .ob-email-row input[type="email"] {
-      flex: 1 1 16rem;
-      font: inherit;
-      padding: 0.55rem 0.75rem;
-      border-radius: 0.4rem;
-      border: 1px solid var(--sl-color-gray-5);
-      background-color: var(--sl-color-bg);
-      color: var(--sl-color-text);
-    }
-    .ob-email-status {
-      margin: 0.6rem 0 0;
-      font-size: var(--sl-text-sm);
-    }
-    .ob-email-status.is-success {
-      color: var(--sl-color-text-accent);
-    }
-    .ob-email-status.is-pending {
       color: var(--sl-color-gray-3);
     }
 
@@ -1404,6 +1364,14 @@ import { Aside } from "@astrojs/starlight/components";
       font-size: var(--sl-text-xs);
       color: var(--sl-color-gray-2);
       font-variant-numeric: tabular-nums;
+    }
+    /* Lay-verifiable privacy cue under the export meta — muted/secondary, complements the
+       "nothing uploaded" lock without restating it. */
+    .ob-lean-export-verify {
+      margin: 0.4rem 0 0;
+      font-size: var(--sl-text-xs);
+      color: var(--sl-color-gray-3);
+      max-width: 62ch;
     }
     .ob-lean-strong { margin-top: 0.85rem; font-size: var(--sl-text-sm); }
     .ob-lean-strong > summary { cursor: pointer; font-weight: 600; color: var(--sl-color-gray-2); width: max-content; }
