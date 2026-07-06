@@ -22,7 +22,8 @@ export type SourceId =
   | "gpx"
   | "tcx"
   | "concept2"
-  | "thecrag";
+  | "thecrag"
+  | "fitbit";
 
 export const SOURCE_LABEL: Record<SourceId, string> = {
   hevy: "Hevy workout CSV",
@@ -34,6 +35,10 @@ export const SOURCE_LABEL: Record<SourceId, string> = {
   tcx: "TCX activity",
   concept2: "Concept2 season CSV",
   thecrag: "theCrag logbook CSV",
+  // Fitbit is the one many-files→one-mapper source: a whole batch of Google Takeout JSON
+  // files feeds a single mapFitbitTakeout call (batched in the convert tool), not one file
+  // → one layer like every source above.
+  fitbit: "Fitbit Takeout",
 };
 
 /** Strength sources get the exercise-resolution + set-by-set preview; endurance sources
@@ -52,9 +57,42 @@ export const SOURCE_KIND: Record<SourceId, "strength" | "endurance" | "measureme
   tcx: "endurance",
   concept2: "endurance",
   thecrag: "endurance",
+  // Fitbit Takeout emits Sessions (exercise logs) + Measurements (weight, HR, steps, sleep)
+  // — endurance-shaped like the tracks above.
+  fitbit: "endurance",
 };
 
 // --- detection -------------------------------------------------------------------------
+
+// The six Google-Takeout Fitbit file kinds, matched by BASENAME (never directory), per
+// openbody-ts src/mappers/fitbit.ts. A whole batch of these feeds ONE mapFitbitTakeout
+// call, so the tool collects every "fitbit"-detected file and maps them together.
+const FITBIT_BASENAME_RE: RegExp[] = [
+  /^exercise-\d+\.json$/,
+  /^steps-\d{4}-\d{2}-\d{2}\.json$/,
+  /^heart_rate-\d{4}-\d{2}-\d{2}\.json$/,
+  /^sleep-\d{4}-\d{2}-\d{2}\.json$/,
+  /^weight-\d{4}-\d{2}-\d{2}\.json$/,
+  /^resting_heart_rate-\d{4}-\d{2}-\d{2}\.json$/,
+];
+
+/** Cheap basename-only gate (no content read) — true when a file's NAME matches one of the
+ *  Fitbit Takeout kinds. Lets the tool skip fully reading unrelated files (e.g. a large
+ *  Apple Health export.xml) just to classify them. */
+export function isFitbitFileName(fileName: string): boolean {
+  const base = fileName.split(/[\\/]/).pop() ?? fileName;
+  return FITBIT_BASENAME_RE.some((re) => re.test(base));
+}
+
+/** True when a file is a Fitbit Takeout kind: basename matches AND the body is a JSON array
+ *  (the shape every Takeout kind uses). Content-gated so an unrelated `weight-2024-01-01.json`
+ *  that isn't a JSON array isn't misrouted into the Fitbit batch. */
+export function isFitbitTakeoutFile(fileName: string, text: string): boolean {
+  return (
+    isFitbitFileName(fileName) &&
+    text.replace(/^\uFEFF/, "").trimStart().startsWith("[")
+  );
+}
 
 /** Split one CSV line into trimmed, unquoted cells (header sniffing only). */
 function sniffHeaderCells(line: string): string[] {
@@ -81,6 +119,11 @@ function sniffHeaderCells(line: string): string[] {
  * Returns null when the file doesn't look like any supported export.
  */
 export function detectSource(fileName: string, text: string): SourceId | null {
+  // Fitbit Takeout: a per-kind JSON array whose basename matches one of the documented
+  // patterns. Checked first \u2014 these are `.json` arrays that would otherwise fall through
+  // every CSV/XML sniff below to null. The convert tool BATCHES all "fitbit"-detected files
+  // into a single mapFitbitTakeout call, so it never routes one through the per-file mapper.
+  if (isFitbitTakeoutFile(fileName, text)) return "fitbit";
   const head = text.slice(0, 8192).replace(/^\uFEFF/, "");
   const looksXml =
     /\.(xml|gpx|tcx)$/i.test(fileName) || /^\s*</.test(head);

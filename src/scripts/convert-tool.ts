@@ -7,6 +7,7 @@
       mapTcx,
       mapConcept2,
       mapTheCrag,
+      mapFitbitTakeout,
       mapOpenBodyToStrong,
       MapperInputError,
       DEFAULT_SUBJECT,
@@ -15,11 +16,13 @@
       type MapOptions,
       type ToStrongResult,
       type MapWarning,
+      type FitbitFile,
     } from "@openbody/openbody-ts";
     import { mergeLayers, toPlainNumbers, type MergeStats } from "../components/merge";
     import { summarizeSessions, formatSetLine, type SessionSummary } from "../lib/hevy/summarize";
     import {
       detectSource,
+      isFitbitFileName,
       mapStravaActivitiesCsv,
       summarizeEndurance,
       formatHoursMinutes,
@@ -95,6 +98,9 @@
       invalidCount?: number;
       /** Original file text — lets a Subject-ID change re-map the layer with the mapper. */
       text?: string;
+      /** Fitbit-only: the whole batch of Takeout files that produced this layer. Fitbit is
+       *  many-files→one-mapper, so a Subject-ID change re-maps from THIS array (not `text`). */
+      fitbitFiles?: FitbitFile[];
       fileName: string;
     }
 
@@ -582,7 +588,7 @@
     const SUPPORTED_HINT =
       "Supported: Hevy workout CSV, Hevy measurement_data.csv, Strong CSV, " +
       "Apple Health export.xml, Strava activities.csv, GPX/TCX tracks, " +
-      "Concept2 season CSV, theCrag logbook CSV.";
+      "Concept2 season CSV, theCrag logbook CSV, Fitbit (Google Takeout) JSON.";
 
     function mapForSource(
       source: SourceId,
@@ -605,6 +611,12 @@
         case "tcx": return mapTcx(text, opts);
         case "concept2": return mapConcept2(text, opts);
         case "thecrag": return mapTheCrag(text, opts);
+        // Fitbit is many-files→one-call: it's batched in handleFiles (ingestFitbitBatch) and
+        // never routed through this per-file path. Guard so the exhaustive switch stays total.
+        case "fitbit":
+          throw new MapperInputError(
+            "fitbit", "Fitbit Takeout is mapped as a batch of files, not one file at a time",
+          );
       }
     }
 
@@ -741,12 +753,89 @@
       };
     }
 
+    // --- ingest: batch a set of Fitbit Takeout files into ONE layer ----------------------
+    // Unlike every other source (one file → one layer via ingestFile), Fitbit is inherently
+    // many-files → one mapper call: mapFitbitTakeout consumes the whole
+    // {exercise,steps,heart_rate,sleep,weight,resting_heart_rate} batch at once (it needs the
+    // set to stitch intraday steps/HR into per-day series). The batch is stored on the layer
+    // so a Subject-ID change can re-map it. Never throws to the caller.
+    function ingestFitbitBatch(batch: FitbitFile[]): { ok: boolean; message: string } {
+      const subject = subjectInput?.value.trim() || undefined;
+      const n = batch.length;
+      const plural = n === 1 ? "" : "s";
+      let mapped: { records: any[]; warnings: MapWarning[] };
+      try {
+        mapped = mapFitbitTakeout(batch, { subject });
+      } catch (err) {
+        console.error("[convert-tool] Fitbit parse failed:", err);
+        return {
+          ok: false,
+          message:
+            err instanceof MapperInputError
+              ? `Fitbit Takeout: ${err.message}`
+              : `Fitbit Takeout: couldn't parse (${err instanceof Error ? err.message : String(err)}).`,
+        };
+      }
+      const { records, warnings } = mapped;
+      if (!records.length) {
+        return {
+          ok: false,
+          message: `Fitbit Takeout: no records found in the ${n} file${plural} — are these ` +
+            `unmodified Global Export Data JSON files?`,
+        };
+      }
+      layers.push({
+        id: `layer-${++layerSeq}`,
+        label: n === 1
+          ? `${SOURCE_LABEL.fitbit} · ${batch[0].name}`
+          : `${SOURCE_LABEL.fitbit} · ${n} files`,
+        source: "fitbit",
+        records,
+        enabled: true,
+        namespaced: false, // fitbit ids are content-stable (logId/date based), like the CSV sources
+        warnings,
+        fitbitFiles: batch, // keep the whole batch so a Subject-ID change can re-map
+        fileName: n === 1 ? batch[0].name : `${n} Fitbit files`,
+      });
+      const realWarnings = warnings.filter((w) => w.code !== "default-subject");
+      return {
+        ok: true,
+        message: `Fitbit Takeout: parsed ${records.length} record${records.length === 1 ? "" : "s"} ` +
+          `from ${n} file${plural}` +
+          `${realWarnings.length ? ` (${realWarnings.length} warning${realWarnings.length === 1 ? "" : "s"})` : ""}.`,
+      };
+    }
+
     async function handleFiles(files: File[]) {
       if (!files.length) return;
       emailCapture.hidden = true;
       setStatus(`Reading ${files.length} file${files.length === 1 ? "" : "s"}…`, "info");
       const results: { ok: boolean; message: string }[] = [];
+
+      // First pass: split off Fitbit Takeout files — the one many-files→one-layer source. Only
+      // files whose NAME matches a Fitbit kind are read here (a cheap gate that avoids fully
+      // reading large unrelated exports like Apple Health export.xml just to classify them);
+      // detectSource then confirms the JSON-array body before batching. Everything else stays
+      // on the per-file ingest path below, untouched.
+      const fitbitBatch: FitbitFile[] = [];
+      const rest: File[] = [];
       for (const file of files) {
+        if (isFitbitFileName(file.name)) {
+          let text = "";
+          try {
+            text = await file.text();
+          } catch {
+            /* fall through to the per-file path, which surfaces the read error */
+          }
+          if (text && detectSource(file.name, text) === "fitbit") {
+            fitbitBatch.push({ name: file.name, text });
+            continue;
+          }
+        }
+        rest.push(file);
+      }
+
+      for (const file of rest) {
         try {
           results.push(await ingestFile(file));
         } catch (err) {
@@ -757,6 +846,8 @@
           });
         }
       }
+      if (fitbitBatch.length > 0) results.push(ingestFitbitBatch(fitbitBatch));
+
       renderAll();
       const okCount = results.filter((r) => r.ok).length;
       const errCount = results.length - okCount;
@@ -796,6 +887,7 @@
       tcx: "endurance",
       concept2: "endurance",
       thecrag: "endurance",
+      fitbit: "endurance",
       openbody: "json",
     };
     const srcKey = (source: string) => SRC_PALETTE[source] ?? "json";
@@ -1655,6 +1747,16 @@
       for (const layer of layers) {
         if (layer.source === "openbody") {
           if (subject) for (const r of layer.records) r.subject = subject;
+          continue;
+        }
+        // Fitbit re-maps from its stored BATCH of files (many-files→one-call), not `text`.
+        if (layer.source === "fitbit") {
+          if (!layer.fitbitFiles) continue;
+          try {
+            layer.records = mapFitbitTakeout(layer.fitbitFiles, { subject }).records;
+          } catch (err) {
+            console.error("[convert-tool] Fitbit re-map on subject change failed:", err);
+          }
           continue;
         }
         if (!layer.text) continue;
