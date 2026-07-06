@@ -117,7 +117,8 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
   </div>
 
   <div class="ob-marketing">
-  <h2>Supported exports</h2>
+  <details class="ob-supported">
+  <summary class="ob-supported-sum"><span class="ob-supported-h">Supported exports</span><span class="ob-supported-list">Hevy · Strong · Apple Health · Strava · GPX · TCX · FIT · Concept2 · theCrag · Fitbit</span></summary>
   <div class="ob-source-grid">
     <div class="ob-source-card">
       <p class="ob-source-name">Hevy — workout CSV</p>
@@ -251,6 +252,7 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
       </p>
     </div>
   </div>
+  </details>
 
   <h2>How it works</h2>
   <ol>
@@ -295,6 +297,28 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
       flex-direction: column;
       gap: 1rem;
     }
+
+    /* "Supported exports" collapses to a one-line summary (format names still visible) so the
+       11-card grid no longer dominates the page; the full detail is one click away. Child
+       combinator out-specifies Starlight's `.sl-markdown-content summary` display:block rule. */
+    .ob-supported {
+      margin-top: 1rem;
+      border: 1px solid var(--sl-color-hairline);
+      border-radius: 0.5rem;
+      background-color: var(--sl-color-bg-nav);
+    }
+    .ob-supported > .ob-supported-sum {
+      cursor: pointer;
+      display: flex;
+      align-items: baseline;
+      flex-wrap: wrap;
+      gap: 0.35rem 0.7rem;
+      padding: 0.75rem 1rem;
+    }
+    .ob-supported-h { font-weight: 600; font-size: var(--sl-text-base); color: var(--sl-color-white); }
+    .ob-supported-list { font-size: var(--sl-text-sm); color: var(--sl-color-gray-3); }
+    .ob-supported[open] > .ob-supported-sum { border-bottom: 1px solid var(--sl-color-hairline); }
+    .ob-supported .ob-source-grid { margin: 0; padding: 1rem; }
 
     .ob-source-grid {
       display: grid;

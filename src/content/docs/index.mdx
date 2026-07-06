@@ -25,7 +25,7 @@ hero:
       variant: minimal
 ---
 
-import { Card, CardGrid, Aside, LinkCard } from '@astrojs/starlight/components';
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
 import meta from '../../generated/spec-meta.json';
 
 <p>
@@ -116,13 +116,6 @@ profiles, and executable test vectors. Every claim above is specified, not impro
   <LinkCard title="Conformance" href="/conformance/" description="Profiles, the test vectors, and how to claim “OpenBody Compatible”." />
   <LinkCard title="Registry" href="/registry/" description="The CC0 registries: curated exercise ids/facets and measurement-type tokens." />
 </CardGrid>
-
-<Aside type="caution" title="Draft standard — in private review">
-OpenBody is a **pre-v1.0 draft (spec v{meta.specVersion})**, currently in private review and being
-dogfooded before a public draft release. **Breaking changes are still possible before
-v1.0.** Nothing here should be read as a claim of broad adoption or a stable, frozen
-standard. Status and history live in the [changelog](/specification/changelog/).
-</Aside>
 
 ---
 
