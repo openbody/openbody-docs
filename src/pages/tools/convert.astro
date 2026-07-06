@@ -14,7 +14,6 @@
 // browser-bundled code. Source detection + the thin activities.csv → mapStrava adapter
 // live in src/components/convert-sources.ts.
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
-import { Aside } from "@astrojs/starlight/components";
 ---
 
 <StarlightPage
@@ -28,7 +27,7 @@ import { Aside } from "@astrojs/starlight/components";
   {/* Marketing chrome: hidden by the client script once a result is showing (the result
       view takes over the same page), restored on "Start over". */}
   <div class="ob-marketing">
-  <p><span class="ob-status">EXPERIMENTAL · pre-v1.0 tool</span></p>
+  <p><span class="ob-status">Pre-v1.0 · demo tool</span></p>
 
   <p class="ob-lede">
     Your workout history is stuck in whatever app you logged it in. This is a small demo of
@@ -37,14 +36,12 @@ import { Aside } from "@astrojs/starlight/components";
     uploaded anywhere — the parsing code runs on your machine, not a server.
   </p>
 
-  <Aside type="caution" title="Early, experimental">
-    OpenBody itself is a <strong>pre-v1.0 draft standard</strong> (see the
-    <a href="/specification/">specification</a>), and this converter is a demo tool, not a
-    finished product. It reads the export formats below via the reference mappers in
-    <a href="https://github.com/openbody/openbody-ts">openbody-ts</a>; each card says
-    exactly what is and isn't read. See the <a href="/mapping/">mapping guides</a> for the
-    mappings that exist in the reference implementation.
-  </Aside>
+  <p class="ob-note">
+    It reads the formats below via the reference mappers in
+    <a href="https://github.com/openbody/openbody-ts">openbody-ts</a> — each card says exactly
+    what is and isn't read. The <a href="/mapping/">mapping guides</a> and the
+    <a href="/specification/">draft specification</a> have the full detail.
+  </p>
   </div>
 
   {/* Primary action up top: the converter is the CTA, so it sits directly beneath the
