@@ -17,7 +17,7 @@ registry covers them, falling back to the lossless `opaque` form otherwise.
 ## Supported formats
 
 All mappers are importable from the `openbody-ts` package root and run in both node and the
-browser. The [in-browser converter](/tools/convert/) wires a subset of them to a drag-and-drop
+browser. The [in-browser converter](/tools/convert/) wires all of them to a drag-and-drop
 page. (Bundling the package for the browser needs a toolchain that understands JSON import
 attributes — `import … with { type: "json" }`, used for the vendored schema and crosswalk;
 modern esbuild / Vite / Rollup / Webpack 5 all do. Node needs nothing extra.)
@@ -28,16 +28,18 @@ modern esbuild / Vite / Rollup / Webpack 5 all do. Node needs nothing extra.)
 | [Strong](/mapping/strong/) (workout CSV) | import | library + [browser tool](/tools/convert/) | `,`- or `;`-delimited exports both parse |
 | [Strava](/mapping/strava/) (activity + streams JSON) | import | library + [browser tool](/tools/convert/) | the library maps the API's activity+streams responses (streams must include `time`); the browser tool reads the bulk-export `activities.csv` instead |
 | [Apple Health / Health Connect](/mapping/apple-health/) (`export.xml`) | import | library + [browser tool](/tools/convert/) | |
-| [FIT](/mapping/fit/) (recorded activity or structured workout) | import | library | takes **pre-decoded** FIT messages — the caller decodes the binary ([why](/mapping/fit/)) |
-| [GPX](/mapping/gpx/) (GPS track) | import | library | untimed tracks degrade honestly (no fabricated timing) |
-| [TCX](/mapping/tcx/) (Garmin Training Center XML) | import | library | |
-| [Fitbit](/mapping/fitbit/) (Google Takeout folder) | import | library | takes a list of `{ name, text }` files; timestamps need a `utcOffset` |
-| [Concept2](/mapping/concept2/) (Logbook season CSV) | import | library | one row per workout — per-stroke detail isn't in this export |
-| [theCrag](/mapping/thecrag/) (logbook CSV) | import | library | |
+| [FIT](/mapping/fit/) (recorded activity or structured workout) | import | library + [browser tool](/tools/convert/) | library takes **pre-decoded** FIT messages ([why](/mapping/fit/)); the browser tool decodes the `.fit` binary for you but maps recorded activities only |
+| [GPX](/mapping/gpx/) (GPS track) | import | library + [browser tool](/tools/convert/) | untimed tracks degrade honestly (no fabricated timing) |
+| [TCX](/mapping/tcx/) (Garmin Training Center XML) | import | library + [browser tool](/tools/convert/) | |
+| [Fitbit](/mapping/fitbit/) (Google Takeout folder) | import | library + [browser tool](/tools/convert/) | multi-select the Takeout JSON files; timestamps need a `utcOffset` |
+| [Concept2](/mapping/concept2/) (Logbook season CSV) | import | library + [browser tool](/tools/convert/) | one row per workout — per-stroke detail isn't in this export |
+| [theCrag](/mapping/thecrag/) (logbook CSV) | import | library + [browser tool](/tools/convert/) | |
 | [Strong](/mapping/to-strong/) (CSV out — also imports into Hevy) | **export** | library + [browser tool](/tools/convert/) | best-effort by design: losses reported machine-readably ([contract](/mapping/to-strong/)) |
 
-The browser tool currently accepts **Hevy, Strong, Apple Health, and Strava** files; the
-other formats run through the library. CSV timestamps carry no UTC offset at the source, so
+The browser tool accepts every import format above — **Hevy, Strong, Apple Health, Strava,
+GPX, TCX, FIT, Concept2, theCrag, and Fitbit** (Google Takeout) — decoding each entirely in
+your browser, and it re-imports an OpenBody JSON you exported earlier. CSV timestamps carry
+no UTC offset at the source, so
 the CSV-based mappers take an optional `utcOffset` and are timezone-independent — the same
 bytes map to the same records on any machine.
 
