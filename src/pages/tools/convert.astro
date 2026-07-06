@@ -56,7 +56,6 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
         accept=".csv,.xml,.json,.fit,text/csv,text/xml,application/xml,application/json,application/octet-stream"
       />
       <span id="ob-dropzone-title" class="ob-dropzone-title">Choose one or more export files, or drag them here</span>
-      <span class="ob-dropzone-sub">Hevy workout CSV · Hevy measurement CSV · Strong CSV · Apple Health export.xml · Strava activities.csv · GPX / TCX track · FIT activity file · Concept2 season CSV · theCrag logbook CSV · Fitbit Google Takeout JSON · an OpenBody JSON you exported earlier</span>
       <span class="ob-dropzone-sub">Add files from several apps and they merge into one history. Nothing is uploaded — it all runs in your browser.</span>
     </label>
 
@@ -117,8 +116,61 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
   </div>
 
   <div class="ob-marketing">
+  {/* The single "what's supported" surface: a scannable app-icon-style tile grid. Each tile
+      is a brand-colour rounded badge (the icon — no external logo assets shipped or hotlinked,
+      to sidestep trademark/asset risk) + the source name + a tiny type label. The detailed
+      "how to export / what's read" cards live one click away in the expander below, so the
+      same information is never shown twice. */}
+  <p class="ob-tiles-h">What you can convert</p>
+  <ul class="ob-src-tiles">
+    <li class="ob-src-tile">
+      <span class="ob-src-badge is-long" style="background: var(--ob-src-hevy)" aria-hidden="true">Hevy</span>
+      <span class="ob-src-tile-text"><span class="ob-src-tile-name">Hevy</span><span class="ob-src-tile-type">lifting</span></span>
+    </li>
+    <li class="ob-src-tile">
+      <span class="ob-src-badge" style="background: var(--ob-src-hevy)" aria-hidden="true">Body</span>
+      <span class="ob-src-tile-text"><span class="ob-src-tile-name">Hevy body</span><span class="ob-src-tile-type">measurements</span></span>
+    </li>
+    <li class="ob-src-tile">
+      <span class="ob-src-badge is-long" style="background: var(--ob-src-strong)" aria-hidden="true">Strong</span>
+      <span class="ob-src-tile-text"><span class="ob-src-tile-name">Strong</span><span class="ob-src-tile-type">lifting</span></span>
+    </li>
+    <li class="ob-src-tile">
+      <span class="ob-src-badge is-long" style="background: var(--ob-src-apple)" aria-hidden="true">Apple</span>
+      <span class="ob-src-tile-text"><span class="ob-src-tile-name">Apple Health</span><span class="ob-src-tile-type">wearable</span></span>
+    </li>
+    <li class="ob-src-tile">
+      <span class="ob-src-badge is-long" style="background: var(--ob-src-apple)" aria-hidden="true">Fitbit</span>
+      <span class="ob-src-tile-text"><span class="ob-src-tile-name">Fitbit</span><span class="ob-src-tile-type">wearable</span></span>
+    </li>
+    <li class="ob-src-tile">
+      <span class="ob-src-badge is-long" style="background: var(--ob-src-strava)" aria-hidden="true">Strava</span>
+      <span class="ob-src-tile-text"><span class="ob-src-tile-name">Strava</span><span class="ob-src-tile-type">endurance</span></span>
+    </li>
+    <li class="ob-src-tile">
+      <span class="ob-src-badge" style="background: var(--ob-src-endurance)" aria-hidden="true">GPX</span>
+      <span class="ob-src-tile-text"><span class="ob-src-tile-name">GPX</span><span class="ob-src-tile-type">gps track</span></span>
+    </li>
+    <li class="ob-src-tile">
+      <span class="ob-src-badge" style="background: var(--ob-src-endurance)" aria-hidden="true">TCX</span>
+      <span class="ob-src-tile-text"><span class="ob-src-tile-name">TCX</span><span class="ob-src-tile-type">gps track</span></span>
+    </li>
+    <li class="ob-src-tile">
+      <span class="ob-src-badge" style="background: var(--ob-src-endurance)" aria-hidden="true">FIT</span>
+      <span class="ob-src-tile-text"><span class="ob-src-tile-name">FIT</span><span class="ob-src-tile-type">device file</span></span>
+    </li>
+    <li class="ob-src-tile">
+      <span class="ob-src-badge" style="background: var(--ob-src-endurance)" aria-hidden="true">C2</span>
+      <span class="ob-src-tile-text"><span class="ob-src-tile-name">Concept2</span><span class="ob-src-tile-type">rowing</span></span>
+    </li>
+    <li class="ob-src-tile">
+      <span class="ob-src-badge" style="background: var(--ob-src-json)" aria-hidden="true">Crag</span>
+      <span class="ob-src-tile-text"><span class="ob-src-tile-name">theCrag</span><span class="ob-src-tile-type">climbing</span></span>
+    </li>
+  </ul>
+
   <details class="ob-supported">
-  <summary class="ob-supported-sum"><span class="ob-supported-h">Supported exports</span><span class="ob-supported-list">Hevy · Strong · Apple Health · Strava · GPX · TCX · FIT · Concept2 · theCrag · Fitbit</span></summary>
+  <summary class="ob-supported-sum"><span class="ob-supported-h">How to export from each app →</span></summary>
   <div class="ob-source-grid">
     <div class="ob-source-card">
       <p class="ob-source-name">Hevy — workout CSV</p>
@@ -298,9 +350,71 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
       gap: 1rem;
     }
 
-    /* "Supported exports" collapses to a one-line summary (format names still visible) so the
-       11-card grid no longer dominates the page; the full detail is one click away. Child
-       combinator out-specifies Starlight's `.sl-markdown-content summary` display:block rule. */
+    /* Scannable source-tile grid — the single "what's supported" surface. App-icon style:
+       a brand-colour rounded badge (the icon; no external logo assets) + the source name +
+       a tiny type label. The badge code is decorative (aria-hidden), redundant with the
+       adjacent name, so it isn't held to text-contrast — the tile reads via its real name. */
+    .ob-tiles-h {
+      margin: 1.25rem 0 0;
+      font-size: var(--sl-text-xs);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--sl-color-gray-3);
+    }
+    .ob-src-tiles {
+      list-style: none;
+      margin: 0.6rem 0 0;
+      padding: 0;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+      gap: 0.6rem;
+    }
+    .ob-src-tile {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.5rem 0.6rem;
+      border: 1px solid var(--sl-color-hairline);
+      border-radius: 0.6rem;
+      background-color: var(--sl-color-bg-nav);
+      min-width: 0;
+    }
+    .ob-src-badge {
+      flex: none;
+      display: grid;
+      place-items: center;
+      width: 40px;
+      height: 40px;
+      border-radius: 0.65rem;
+      color: #fff;
+      font-weight: 700;
+      font-size: 0.85rem;
+      letter-spacing: -0.01em;
+      line-height: 1;
+      /* Decorative monogram over a mid-luminance fill: a subtle inset ring keeps the badge
+         edge crisp in both themes, and a soft shadow lifts the white glyph on lighter fills
+         (e.g. the light-theme orange/yellow source colours). */
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+      text-shadow: 0 1px 1.5px rgba(0, 0, 0, 0.28);
+    }
+    .ob-src-badge.is-long { font-size: 0.62rem; letter-spacing: 0; }
+    .ob-src-tile-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+    .ob-src-tile-name {
+      font-size: var(--sl-text-sm);
+      font-weight: 600;
+      color: var(--sl-color-white);
+      line-height: 1.2;
+      overflow-wrap: anywhere;
+    }
+    .ob-src-tile-type {
+      font-size: var(--sl-text-xs);
+      color: var(--sl-color-gray-3);
+    }
+
+    /* The "How to export from each app" expander keeps the detailed cards one click away, so
+       the same information is never shown twice. Child combinator out-specifies Starlight's
+       `.sl-markdown-content summary` display:block rule. */
     .ob-supported {
       margin-top: 1rem;
       border: 1px solid var(--sl-color-hairline);
@@ -316,7 +430,6 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
       padding: 0.75rem 1rem;
     }
     .ob-supported-h { font-weight: 600; font-size: var(--sl-text-base); color: var(--sl-color-white); }
-    .ob-supported-list { font-size: var(--sl-text-sm); color: var(--sl-color-gray-3); }
     .ob-supported[open] > .ob-supported-sum { border-bottom: 1px solid var(--sl-color-hairline); }
     .ob-supported .ob-source-grid { margin: 0; padding: 1rem; }
 
