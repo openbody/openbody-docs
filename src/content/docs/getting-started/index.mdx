@@ -3,7 +3,7 @@ title: Getting started
 description: Install openbody-ts, validate a record against the JSON Schema, and canonically normalize it.
 ---
 
-import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+import { Aside } from '@astrojs/starlight/components';
 
 This walks through the **TypeScript reference implementation**, `openbody-ts`: validate an
 OpenBody record against the published JSON Schema, then run it through the
@@ -12,36 +12,21 @@ implementation implements as the conformance suite's equivalence oracle). A refe
 implementation is *one* implementation, not normative —
 [`SPEC.md`](/specification/spec/) is the source of truth.
 
-<Aside type="note" title="Pre-release tooling — not yet on npm">
-The package is `@openbody/openbody-ts` (v0.1.0, tracking the current OpenBody
-draft). It is **not yet published to npm**, so `npm install @openbody/openbody-ts` will not
-work today. While the package is pre-release, the working setup is a **local clone**, as
-below (a git-URL install — `npm install github:openbody/openbody-ts` — becomes an option
-once the repository is public). Install steps will firm up at the public draft release.
+<Aside type="note" title="Pre-v1.0">
+`@openbody/openbody-ts` is on npm (Apache-2.0), published with build provenance, and
+tracks the current OpenBody draft — so its API can still change before v1.0.
 </Aside>
 
 ## Install
 
-<Steps>
+```bash
+npm install @openbody/openbody-ts
+```
 
-1. Clone the standard and the reference implementation as sibling checkouts. The vector
-   runner and validator read the standard (schema + vectors) from `../openbody` by default
-   (override with `OPENBODY_STANDARD`).
-
-   ```bash
-   git clone https://github.com/openbody/openbody.git
-   git clone https://github.com/openbody/openbody-ts.git
-   cd openbody-ts
-   npm install
-   ```
-
-2. Confirm the toolchain is green:
-
-   ```bash
-   npm test   # typecheck + lint + vitest (including lossless number checks)
-   ```
-
-</Steps>
+Requires Node ≥ 20.19. The published package bundles the schema + registry snapshots it
+needs, so there's nothing else to set up. Working from a git checkout instead — to
+contribute, or to run the conformance vectors against `../openbody` — is covered by the
+repo's `CONTRIBUTING.md` and [Run the conformance vectors](/getting-started/vectors/).
 
 ## Validate a record
 
