@@ -133,6 +133,10 @@ jobs:
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v4
         with:
+          # Pin the Wrangler CLI to v3 to match the project-create step above. wrangler-action@v4
+          # defaults the CLI to v4 when unset; pinning keeps deploy behavior identical to before
+          # this action bump (the bump was only to get the action off the deprecated Node 20).
+          wranglerVersion: "3"
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy openbody-docs/dist --project-name=openbody-docs --branch=main
