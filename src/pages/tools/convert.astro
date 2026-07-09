@@ -910,9 +910,19 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
     }
     .ob-preview-more {
       margin: 0;
+      padding: 0.6rem 0.9rem 0.9rem;
+    }
+    /* Progressive-reveal "Show more" control (OB-102). Full-width, hairline-bordered so it
+       reads as a clickable affordance rather than the plain ghost text button. */
+    .ob-showmore {
+      width: 100%;
+      text-align: center;
+      border-color: var(--sl-color-hairline);
       font-size: var(--sl-text-sm);
-      color: var(--sl-color-gray-3);
-      font-style: italic;
+    }
+    .ob-showmore:hover {
+      border-color: var(--sl-color-gray-4);
+      color: var(--sl-color-text);
     }
 
     /* Hevy body-measurement preview: one small Type / Value table per day. */
