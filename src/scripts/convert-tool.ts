@@ -431,6 +431,58 @@
       strongInfoEl.hidden = false;
     }
 
+    // --- bounded/progressive render (OB-102) ---------------------------------------------
+    // The result DOM is built on the MAIN THREAD after the (now off-thread) parse. A real
+    // Apple Health export can produce tens of thousands of sessions/rows; building a card (or
+    // table row) for every one in a single synchronous pass froze the tab for tens of seconds.
+    // We instead render the first RENDER_BATCH items inline and defer the rest behind a
+    // "Show more" control that appends the next batch on click. Each pass is O(batch), so no
+    // single build ever blocks for long, and the tab is interactive the instant the first
+    // batch paints. Small results (total <= batch) render fully with no control — byte-for-
+    // byte the same experience as before. No requestAnimationFrame is involved here, so this
+    // is immune to the background-tab raF stall that bit the parse path (see nextFrame()).
+    const RENDER_BATCH = 50;
+
+    /**
+     * Render `items` into `cardHost` in bounded batches. The first batch is built immediately;
+     * any remainder waits behind a "Show more" button (appended to `controlHost`, defaulting to
+     * `cardHost`) that builds the next batch when clicked. When everything is rendered the
+     * control removes itself. For `items.length <= batch` no control is ever shown.
+     */
+    function renderInBatches<T>(
+      cardHost: HTMLElement,
+      items: T[],
+      buildCard: (item: T, index: number) => HTMLElement,
+      opts: { noun: string; batch?: number; controlHost?: HTMLElement },
+    ): void {
+      const batch = opts.batch ?? RENDER_BATCH;
+      const controlHost = opts.controlHost ?? cardHost;
+      const moreWrap = document.createElement("div");
+      moreWrap.className = "ob-preview-more";
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "ob-btn ob-btn-ghost ob-showmore";
+      moreWrap.append(btn);
+
+      let rendered = 0;
+      const renderNext = () => {
+        const end = Math.min(rendered + batch, items.length);
+        const frag = document.createDocumentFragment();
+        for (let i = rendered; i < end; i++) frag.append(buildCard(items[i], i));
+        cardHost.append(frag);
+        rendered = end;
+        if (rendered >= items.length) {
+          moreWrap.remove();
+        } else {
+          const remaining = items.length - rendered;
+          btn.textContent = `Show more — ${nf0.format(remaining)} more ${opts.noun}`;
+          controlHost.append(moreWrap); // (re)attach so the control stays after the cards
+        }
+      };
+      btn.addEventListener("click", renderNext);
+      renderNext();
+    }
+
     function renderPreview(records: unknown[], host: HTMLElement) {
       const previewEl = host;
       const sessions: SessionSummary[] = summarizeSessions(records as any);
@@ -440,64 +492,67 @@
         const p = document.createElement("p");
         p.textContent = "No sessions parsed from that file.";
         previewEl.append(p);
+        return;
       }
 
       // Each session is its own collapsible <details>, closed by default: collapsed it's a
       // scannable name · date · count row, so the section is a tidy list the reader expands
-      // on demand instead of a wall of every set.
-      const cards: HTMLElement[] = [];
-      sessions.forEach((session) => {
-        const card = document.createElement("details");
-        card.className = "ob-session-card";
+      // on demand instead of a wall of every set. Rendered in bounded batches (OB-102) so a
+      // huge history never blocks the main thread in one synchronous build.
+      renderInBatches(previewEl, sessions, buildStrengthCard, { noun: "sessions" });
+    }
 
-        const sum = document.createElement("summary");
-        sum.className = "ob-session-sum";
-        const heading = document.createElement("span");
-        heading.className = "ob-session-name";
-        heading.textContent = session.name;
-        const dateEl = document.createElement("span");
-        dateEl.className = "ob-session-date";
-        dateEl.textContent = session.dateLabel;
-        const setCount = session.exercises.reduce((n, ex) => n + ex.sets.length, 0);
-        const meta = document.createElement("span");
-        meta.className = "ob-session-meta";
-        meta.textContent =
-          `${session.exercises.length} exercise${session.exercises.length === 1 ? "" : "s"} · ` +
-          `${setCount} set${setCount === 1 ? "" : "s"}`;
-        sum.append(heading, dateEl, meta);
-        card.append(sum);
+    function buildStrengthCard(session: SessionSummary): HTMLElement {
+      const card = document.createElement("details");
+      card.className = "ob-session-card";
 
-        const exList = document.createElement("div");
-        exList.className = "ob-exercise-list";
-        for (const ex of session.exercises) {
-          const exBlock = document.createElement("div");
-          exBlock.className = "ob-exercise";
+      const sum = document.createElement("summary");
+      sum.className = "ob-session-sum";
+      const heading = document.createElement("span");
+      heading.className = "ob-session-name";
+      heading.textContent = session.name;
+      const dateEl = document.createElement("span");
+      dateEl.className = "ob-session-date";
+      dateEl.textContent = session.dateLabel;
+      const setCount = session.exercises.reduce((n, ex) => n + ex.sets.length, 0);
+      const meta = document.createElement("span");
+      meta.className = "ob-session-meta";
+      meta.textContent =
+        `${session.exercises.length} exercise${session.exercises.length === 1 ? "" : "s"} · ` +
+        `${setCount} set${setCount === 1 ? "" : "s"}`;
+      sum.append(heading, dateEl, meta);
+      card.append(sum);
 
-          const exName = document.createElement("p");
-          exName.className = "ob-exercise-name";
-          exName.textContent = ex.supersetGroup ? `${ex.name} (superset)` : ex.name;
-          exBlock.append(exName);
+      const exList = document.createElement("div");
+      exList.className = "ob-exercise-list";
+      for (const ex of session.exercises) {
+        const exBlock = document.createElement("div");
+        exBlock.className = "ob-exercise";
 
-          const setList = document.createElement("ul");
-          setList.className = "ob-set-list";
-          for (const set of ex.sets) {
-            const li = document.createElement("li");
-            li.textContent = `Set ${set.index}: ${formatSetLine(set)}`;
-            setList.append(li);
-          }
-          exBlock.append(setList);
-          exList.append(exBlock);
+        const exName = document.createElement("p");
+        exName.className = "ob-exercise-name";
+        exName.textContent = ex.supersetGroup ? `${ex.name} (superset)` : ex.name;
+        exBlock.append(exName);
+
+        const setList = document.createElement("ul");
+        setList.className = "ob-set-list";
+        for (const set of ex.sets) {
+          const li = document.createElement("li");
+          li.textContent = `Set ${set.index}: ${formatSetLine(set)}`;
+          setList.append(li);
         }
-        card.append(exList);
-        cards.push(card);
-      });
-      previewEl.append(...cards);
+        exBlock.append(setList);
+        exList.append(exBlock);
+      }
+      card.append(exList);
+      return card;
     }
 
     // Endurance sources (Apple Health, Strava) don't have sets/reps to preview or exercise
     // names to resolve — the rollup lives in the unified summary card above; this renders
-    // just the per-session cards. Still 100% client-side.
-    const ENDURANCE_PREVIEW_CAP = 200;
+    // just the per-session cards. Still 100% client-side. Rendered in bounded batches with a
+    // "Show more" control (OB-102) — this replaces the old hard 200-session cap, so every
+    // session is now reachable in the UI without ever blocking the main thread on a big build.
     function renderEndurancePreview(records: any[], host: HTMLElement) {
       const previewEl = host;
       const summary = summarizeEndurance(records);
@@ -505,35 +560,27 @@
       previewEl.replaceChildren();
       // Same collapsible-per-session treatment as strength, closed by default: each is a
       // name · date row carrying its summary line, expanded on demand.
-      const cards: HTMLElement[] = [];
-      summary.sessions.slice(0, ENDURANCE_PREVIEW_CAP).forEach((session) => {
-        const card = document.createElement("details");
-        card.className = "ob-session-card";
-        const sum = document.createElement("summary");
-        sum.className = "ob-session-sum";
-        const heading = document.createElement("span");
-        heading.className = "ob-session-name";
-        heading.textContent = session.name;
-        const dateEl = document.createElement("span");
-        dateEl.className = "ob-session-date";
-        dateEl.textContent = session.dateLabel;
-        sum.append(heading, dateEl);
-        card.append(sum);
-        const partsEl = document.createElement("p");
-        partsEl.className = "ob-session-parts";
-        partsEl.textContent = session.parts.join(" · ");
-        card.append(partsEl);
-        cards.push(card);
-      });
-      previewEl.append(...cards);
-      if (summary.sessions.length > ENDURANCE_PREVIEW_CAP) {
-        const more = document.createElement("p");
-        more.className = "ob-preview-more";
-        more.textContent =
-          `Showing the first ${ENDURANCE_PREVIEW_CAP} of ${summary.sessions.length} sessions ` +
-          `above — all are in the download and the raw records below.`;
-        previewEl.append(more);
-      }
+      renderInBatches(previewEl, summary.sessions, buildEnduranceCard, { noun: "sessions" });
+    }
+
+    function buildEnduranceCard(session: { name: string; dateLabel: string; parts: string[] }): HTMLElement {
+      const card = document.createElement("details");
+      card.className = "ob-session-card";
+      const sum = document.createElement("summary");
+      sum.className = "ob-session-sum";
+      const heading = document.createElement("span");
+      heading.className = "ob-session-name";
+      heading.textContent = session.name;
+      const dateEl = document.createElement("span");
+      dateEl.className = "ob-session-date";
+      dateEl.textContent = session.dateLabel;
+      sum.append(heading, dateEl);
+      card.append(sum);
+      const partsEl = document.createElement("p");
+      partsEl.className = "ob-session-parts";
+      partsEl.textContent = session.parts.join(" · ");
+      card.append(partsEl);
+      return card;
     }
 
     // Just the per-day measurements TABLE (no chart) — the bodyweight chart is the cockpit
@@ -562,24 +609,29 @@
       }
       thead.append(headRow);
       const tbody = document.createElement("tbody");
-      for (const row of table.rows) {
+      const columns = table.columns;
+      const buildRow = (row: MeasurementTable["rows"][number]): HTMLElement => {
         const tr = document.createElement("tr");
         const dateTd = document.createElement("th");
         dateTd.scope = "row";
         dateTd.className = "ob-meas-daterow";
         dateTd.textContent = row.dateLabel;
         tr.append(dateTd);
-        for (const col of table.columns) {
+        for (const col of columns) {
           const td = document.createElement("td");
           td.className = "ob-meas-value";
           td.textContent = row.cells[col.key] ?? "";
           tr.append(td);
         }
-        tbody.append(tr);
-      }
+        return tr;
+      };
       el.append(thead, tbody);
       scroll.append(el);
       host.append(scroll);
+      // Rows go into the table body in bounded batches (OB-102); the "Show more" control sits
+      // below the scroll wrapper (a button can't live inside <tbody>). An Apple Health export
+      // can produce thousands of daily rows, so this keeps the initial build cheap.
+      renderInBatches(tbody, table.rows, buildRow, { noun: "days", controlHost: host });
     }
 
     const SUPPORTED_HINT =
